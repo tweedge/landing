@@ -365,6 +365,6 @@ build stores the right one, you have proven causation rather than correlation.
 - `cargo run -- check-idempotent` passes.
 - `python3 tests/smoke_test.py` passes (when Chromium is available).
 - For UI changes: screenshots captured at 390/780/1920px in light and dark, with top/edge pixels compared to the page background and alignment measured numerically.
-- `./landing restart` succeeds and `./landing health` returns OK.
+- `landing restart` succeeds and `landing health` returns OK.
 - `SPEC.md` and `README.md` reflect any behavior change.
 - No stale references to removed features (extensions, userscripts, CDN, `?go=`).

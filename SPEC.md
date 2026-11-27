@@ -59,7 +59,7 @@ The supported and recommended way to use Landing is:
 1. **Fork** the repository (or use it directly).
 2. **Clone** it to the machine that will serve it.
 3. **Edit** `config/landing.yml` and local assets.
-4. **Run the entrypoint** (`./landing` or `./landing install`), which:
+4. **Run the entrypoint** (`landing` or `landing install`), which:
    - builds the updated landing page locally,
    - installs it locally following Linux conventions (XDG data/config paths, a systemd user unit, or a documented fallback),
    - starts the service on `localhost`,
@@ -75,7 +75,7 @@ There is no cloud build, no cloud install, no CDN, no hosted dependency, and no 
 
 - **Local-first.** The build, install, and runtime all happen on the user's computer. The site is served from `localhost`; there is no cloud build, cloud install, CDN, or hosted dependency.
 - **Fork → clone → edit → ship.** The repository is the product. A user can fork it, edit YAML and assets, and run one entrypoint script to build, install, start, and verify the page.
-- **One entrypoint.** `./landing` (with subcommands such as `build`, `install`, `start`, `stop`, `status`, `health`, `uninstall`) is the only command a user needs. It is idempotent and safe to re-run after edits.
+- **One entrypoint.** `landing` (with subcommands such as `build`, `install`, `start`, `stop`, `status`, `health`, `uninstall`) is the only command a user needs. It is idempotent and safe to re-run after edits.
 - **Linux conventions.** Installation follows the XDG Base Directory specification and systemd user units where available, with documented fallbacks for systems without systemd.
 - **Static runtime.** The served site is plain HTML, CSS, and JavaScript. The only local process is a small static file server with a healthcheck endpoint.
 - **Offline-first configuration.** All configuration is YAML in the repository. YAML is read only at build time; the runtime never fetches or parses YAML.
@@ -133,7 +133,7 @@ These are tested browser facts and hard product constraints that shape the desig
 | **Offline** | No Internet access. May still be on the LAN. |
 | **App shell** | The HTML, CSS, JavaScript, configuration, icons, and fonts needed to render Landing without network access. |
 | **Single-file build** | An optional self-contained `landing.html` export with inlined CSS, JavaScript, configuration, and small images, usable from `file://`. Not the primary install path. |
-| **Entrypoint** | The repository-root executable `./landing` that builds, installs, starts, stops, checks, and uninstalls the local service. |
+| **Entrypoint** | The repository-root executable `landing` that builds, installs, starts, stops, checks, and uninstalls the local service. |
 | **Local install** | The files the entrypoint places on the machine: built site under `$XDG_DATA_HOME/landing`, configuration under `$XDG_CONFIG_HOME/landing`, and a systemd user unit under `$XDG_CONFIG_HOME/systemd/user`. |
 | **Healthcheck** | A local HTTP request to the server's health path (default `/healthz`) that returns a small JSON document and a 2xx status when the built site is being served. |
 | **Favicon cache** | Build-time downloaded and validated service icons stored in a local, gitignored cache (for example `assets/favicons/`) and copied into the build output. |
@@ -166,8 +166,8 @@ Requirements are numbered so implementation and tests can refer to them.
 - **R-CONF-14.** The build MUST generate the local server's runtime files: a healthcheck response, security headers, cache headers, and a `server.json` describing host, port, and health path.
 - **R-CONF-15.** The build MUST support a configurable base path for serving under a subdirectory.
 - **R-CONF-16.** The build MUST be runnable entirely offline after dependencies are installed. Favicon fetching is the only optional network step and MUST degrade gracefully to a custom or generated icon when offline.
-- **R-CONF-17.** The repository MUST provide a single executable entrypoint at `./landing` that implements `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, and `uninstall` subcommands.
-- **R-CONF-18.** `./landing install` MUST build the site, install it to XDG-conformant paths, install and enable a systemd user unit when systemd is available, start the service, and run the healthcheck. It MUST be idempotent and safe to re-run after configuration edits.
+- **R-CONF-17.** The repository MUST provide a single executable entrypoint at `landing` that implements `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, and `uninstall` subcommands.
+- **R-CONF-18.** `landing install` MUST build the site, install it to XDG-conformant paths, install and enable a systemd user unit when systemd is available, start the service, and run the healthcheck. It MUST be idempotent and safe to re-run after configuration edits.
 - **R-CONF-19.** The entrypoint MUST fail with a non-zero exit code and an actionable message if the build, install, service start, or healthcheck fails.
 - **R-CONF-20.** The entrypoint MUST NOT require root. It MUST use user-level installation by default and MUST document any optional system-wide mode.
 - **R-CONF-21.** The build MUST NOT produce a browser extension, userscript, or any artifact intended for a cloud/CDN deployment.
@@ -253,8 +253,8 @@ Requirements are numbered so implementation and tests can refer to them.
 - **R-OFF-9.** The page MUST clearly indicate when it is running from cache/offline, when a link is unavailable, and when a probe is still pending.
 - **R-OFF-10.** The documentation MUST describe the local install layout, the entrypoint commands, the systemd user unit, the healthcheck, and how to uninstall. It MUST NOT describe CDN or cloud deployment as a supported path.
 - **R-OFF-11.** The entrypoint MUST install the built site under `$XDG_DATA_HOME/landing` (default `~/.local/share/landing`), configuration under `$XDG_CONFIG_HOME/landing` (default `~/.config/landing`), and the systemd user unit under `$XDG_CONFIG_HOME/systemd/user/landing.service`.
-- **R-OFF-12.** The entrypoint MUST support a foreground `./landing start --foreground` mode for systems without systemd, and MUST document it.
-- **R-OFF-13.** The entrypoint MUST provide `./landing uninstall` that stops and disables the service and removes installed files, while preserving the user's configuration unless `--purge` is passed.
+- **R-OFF-12.** On systems without systemd, `landing start` MUST fall back to a detached background process tracked by a PID file under the state directory; no extra flag is required. `landing serve --root <dir> --config <server.json>` runs the server in the foreground for debugging.
+- **R-OFF-13.** The entrypoint MUST provide `landing uninstall` that stops and disables the service and removes installed files, while preserving the user's configuration unless `--purge` is passed.
 
 ### 4.6 Security and privacy
 
@@ -298,7 +298,7 @@ Requirements are numbered so implementation and tests can refer to them.
 repository (fork/clone)
         │
         ▼
-  ./landing build
+  landing build
         │  YAML config + local assets + build-time favicon cache
         ▼
   dist/site/          multi-file static site + PWA
@@ -306,7 +306,7 @@ repository (fork/clone)
   dist/config.resolved.json / server.json / checksums
         │
         ▼
-  ./landing install
+  landing install
         │  XDG data/config paths + systemd user unit
         ▼
   local static server on http://127.0.0.1:8080
@@ -319,22 +319,23 @@ There is no application server, no cloud build, and no required probe infrastruc
 
 ### 5.1.1 Entrypoint lifecycle
 
-`./landing` is a thin, dependency-light wrapper (POSIX shell or Python) around the build and the local service. It is the only interface users need.
+`landing` is a thin, dependency-light wrapper (POSIX shell or Python) around the build and the local service. It is the only interface users need.
 
 | Command | Behavior |
 | --- | --- |
-| `./landing` | Alias for `./landing install` (build, install, start, healthcheck). |
-| `./landing build` | Build `dist/` from `config/landing.yml`; refresh favicons only when requested. |
-| `./landing install` | Build, copy the site to `$XDG_DATA_HOME/landing/site`, write `server.json`, install/enable the systemd user unit, start/restart the service, and run the healthcheck. |
-| `./landing start` | Start the installed service (systemd or foreground with `--foreground`). |
-| `./landing stop` | Stop the service. |
-| `./landing restart` | Restart the service after a rebuild. |
-| `./landing status` | Show service state, bind address, installed paths, and last healthcheck result. |
-| `./landing health` | Request the health path and exit non-zero on failure. |
-| `./landing logs` | Show recent service logs (`journalctl --user -u landing` when available). |
-| `./landing uninstall` | Stop/disable the service and remove installed files; keep config unless `--purge`. |
+| `landing` | Alias for `landing install` (build, install, start, healthcheck). |
+| `landing init` | Write a starter `config/landing.yml` from the embedded example (`--force` to overwrite). |
+| `landing build` | Build `dist/` from `config/landing.yml`; refresh favicons only when requested. |
+| `landing install` | Build, copy the site to `$XDG_DATA_HOME/landing/site`, write `server.json`, install/enable the systemd user unit, start/restart the service, and run the healthcheck. |
+| `landing start` | Start the installed service (systemd when available, else a detached process with a PID file). |
+| `landing stop` | Stop the service. |
+| `landing restart` | Restart the service after a rebuild. |
+| `landing status` | Show service state, bind address, installed paths, and last healthcheck result. |
+| `landing health` | Request the health path and exit non-zero on failure. |
+| `landing logs` | Show recent service logs (`journalctl --user -u landing` when available). |
+| `landing uninstall` | Stop/disable the service and remove installed files; keep config unless `--purge`. |
 
-The entrypoint MUST be idempotent: running `./landing` repeatedly after editing YAML must rebuild, reinstall, restart, and re-check without manual cleanup.
+The entrypoint MUST be idempotent: running `landing` repeatedly after editing YAML must rebuild, reinstall, restart, and re-check without manual cleanup.
 
 ### 5.2 Runtime components
 
@@ -384,8 +385,8 @@ Landing is installed on the machine that serves it. The entrypoint owns the life
 **Service model:**
 
 - The server binds to `127.0.0.1` on the configured port (default `8080`).
-- With systemd available, `./landing install` writes and enables a user unit, then `systemctl --user enable --now landing.service`.
-- Without systemd, `./landing start --foreground` runs the server in the foreground; `./landing start` may daemonize with a PID file under the state directory.
+- With systemd available, `landing install` writes and enables a user unit, then `systemctl --user enable --now landing.service`.
+- Without systemd, `landing start` runs the server as a detached process with a PID file under the state directory. Use `landing serve` directly to run in the foreground.
 - The healthcheck is `GET http://127.0.0.1:<port><health_path>` and MUST return `200` with JSON such as `{"status":"ok","build":"<hash>"}`.
 
 **Why local-first:**
@@ -486,7 +487,7 @@ Because the build runs locally, Landing can resolve the real icon for each servi
 **Caching and refresh:**
 
 - Cached files are reused on subsequent builds, so repeated builds are fast and deterministic. The cache is local and gitignored; a fresh clone fetches icons on first build.
-- `./landing build --refresh-favicons` (or `favicons.refresh: true`) re-fetches all autoloaded icons.
+- `landing build --refresh-favicons` (or `favicons.refresh: true`) re-fetches all autoloaded icons.
 - A per-link `favicon_refresh: true` re-fetches only that link.
 - The manifest is deterministic: sorted keys, stable formatting, and no volatile timestamps in the build output. Fetch times MAY be recorded in the local manifest but MUST NOT affect the built site's hashes.
 
@@ -820,7 +821,7 @@ groups:
 - `probe.lan.random_subdomain` is optional and only valid if the user already has wildcard DNS for the LAN domain. Default false; never assume it. `probe.lan.domain` names that existing LAN domain (for example `lan` or `home.arpa`) and is required only when `random_subdomain` is true.
 - The build MUST add every configured public probe origin and every LAN URL origin (including explicit `probe.lan.urls` and optional IP fallback) to the CSP `connect-src` allowlist. If `random_subdomain` is enabled, add the wildcard origin for that LAN domain.
 - `favicons.enabled` (default `true`) turns build-time favicon autoload on or off.
-- `favicons.refresh` (default `false`) re-fetches all autoloaded icons; `./landing build --refresh-favicons` overrides it for one run.
+- `favicons.refresh` (default `false`) re-fetches all autoloaded icons; `landing build --refresh-favicons` overrides it for one run.
 - `favicons.timeout_ms` and `favicons.max_bytes` bound each fetch. `favicons.allow_private_hosts` (default `false`) permits fetching from LAN/private addresses.
 - `favicons.cache_dir` is the repository-relative local cache directory (default `assets/favicons`, gitignored). `favicons.prefer` orders format preference when multiple icons are declared.
 - `server.host` defaults to `127.0.0.1`; `server.port` defaults to `8080`; `server.health_path` defaults to `/healthz`.
@@ -1048,9 +1049,9 @@ lan      = first successful probe among:
 13. **Theme**: YAML colors/background are reflected; `theme.mode` (default `dark`) applies; contrast warnings are actionable.
 14. **Security**: CSP has no unexpected origins; `go` cannot redirect off-allowlist; SVGs contain no scripts; config secret scan passes; server rejects path traversal.
 15. **Determinism**: two builds produce identical hashes.
-16. **Entrypoint**: `./landing` on a clean temporary XDG root builds, installs, starts, and passes the healthcheck; a second run is idempotent; `./landing uninstall` removes the service and installed files.
+16. **Entrypoint**: `landing` on a clean temporary XDG root builds, installs, starts, and passes the healthcheck; a second run is idempotent; `landing uninstall` removes the service and installed files.
 17. **Favicons**: a link with `icon: auto` gets the service's declared favicon; a link with an explicit icon keeps it; a failed fetch falls back without failing the build; cached icons are reused offline.
-18. **Healthcheck failure**: if the server cannot start or the site is missing, `./landing` exits non-zero with an actionable message.
+18. **Healthcheck failure**: if the server cannot start or the site is missing, `landing` exits non-zero with an actionable message.
 
 ### 9.4 Browser test matrix
 
@@ -1073,10 +1074,10 @@ The Chromium rows and the `file://`/service-worker behavior are covered by the l
 git clone <your-fork> landing
 cd landing
 $EDITOR config/landing.yml
-./landing
+landing
 ```
 
-`./landing` is equivalent to `./landing install`. It:
+`landing` is equivalent to `landing install`. It:
 
 1. checks the local toolchain (Python 3.11+, pip, and the pinned requirements),
 2. builds `dist/` from `config/landing.yml`,
@@ -1086,18 +1087,18 @@ $EDITOR config/landing.yml
 6. starts or restarts the service,
 7. requests the health path and prints the URL and result.
 
-If systemd is unavailable, it prints the foreground command (`./landing start --foreground`) and exits successfully only after a foreground healthcheck passes.
+If systemd is unavailable, it starts a detached process and exits successfully only after a healthcheck passes.
 
 ### 10.2 Service management
 
 ```bash
-./landing status
-./landing health
-./landing logs
-./landing restart
-./landing stop
-./landing uninstall          # keep config
-./landing uninstall --purge  # remove config too
+landing status
+landing health
+landing logs
+landing restart
+landing stop
+landing uninstall          # keep config
+landing uninstall --purge  # remove config too
 ```
 
 The systemd user unit is installed at `$XDG_CONFIG_HOME/systemd/user/landing.service` and runs the local server as the installing user. It MUST NOT run as root. A representative unit:
@@ -1127,8 +1128,8 @@ The exact paths are resolved by the entrypoint from XDG environment variables; t
 
 - `GET http://127.0.0.1:<port><health_path>` returns `200` and JSON such as `{"status":"ok","build":"<hash>","site":"<title>"}`.
 - It returns non-2xx if the installed site is missing, unreadable, or the build hash does not match `server.json`.
-- `./landing health` exits `0` on success and non-zero with the response body on failure.
-- `./landing install` MUST run the healthcheck and fail if it does not pass within a bounded retry window.
+- `landing health` exits `0` on success and non-zero with the response body on failure.
+- `landing install` MUST run the healthcheck and fail if it does not pass within a bounded retry window.
 
 ### 10.4 Favorites bar
 
@@ -1155,7 +1156,7 @@ The exact paths are resolved by the entrypoint from XDG environment variables; t
 - Repository layout, config schema, sample `config/landing.yml`.
 - Python build pipeline: load/validate/normalize, render `index.html`, `styles.css`, `app.js`, manifest, service worker.
 - Theme tokens and static groups/links.
-- `./landing` entrypoint with `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, and `uninstall`.
+- `landing` entrypoint with `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, and `uninstall`.
 - XDG install layout, systemd user unit generation, foreground fallback.
 - Local static server with healthcheck and security headers.
 - Deterministic build + idempotency test.
@@ -1219,9 +1220,9 @@ The first implementation is done when:
 
 - A valid `config/landing.yml` builds `dist/site/` and `dist/landing.html` deterministically.
 - The site renders grouped links, search, theme, background, and responsive layout from YAML.
-- `./landing` on a clean machine builds, installs to XDG paths, starts the local service, and passes the healthcheck.
-- Re-running `./landing` after editing YAML rebuilds, reinstalls, restarts, and re-checks without manual cleanup.
-- `./landing status`, `health`, `logs`, `stop`, `restart`, and `uninstall` work as documented; `uninstall --purge` removes config.
+- `landing` on a clean machine builds, installs to XDG paths, starts the local service, and passes the healthcheck.
+- Re-running `landing` after editing YAML rebuilds, reinstalls, restarts, and re-checks without manual cleanup.
+- `landing status`, `health`, `logs`, `stop`, `restart`, and `uninstall` work as documented; `uninstall --purge` removes config.
 - The server binds to `127.0.0.1` by default and serves the site on `http://localhost:<port>`.
 - The healthcheck returns `200` with a build hash when healthy and non-2xx with a diagnostic when not.
 - On a simulated home LAN with Internet, dual-URL links use LAN URLs; the LAN probe uses existing `lan_url`s (no dedicated endpoint).
