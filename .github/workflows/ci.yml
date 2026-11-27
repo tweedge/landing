@@ -24,7 +24,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -53,7 +53,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -66,20 +66,21 @@ jobs:
       - name: Install websocket-client
         run: python3 -m pip install --user websocket-client
 
+      - name: Set up Chrome for Testing
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
       - name: Run smoke tests
-        run: |
-          # ubuntu-latest ships google-chrome; fall back to chromium if present.
-          export CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
-          if [ -z "$CHROME_BIN" ]; then
-            echo "No Chrome/Chromium found on the runner" >&2
-            exit 1
-          fi
-          python3 tests/smoke_test.py
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: python3 tests/smoke_test.py
 
   install-script:
     # Lint the release installer with shellcheck so it stays portable.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Shellcheck
         run: shellcheck scripts/install.sh scripts/build-release.sh

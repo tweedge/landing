@@ -91,16 +91,23 @@ class CDP:
 
 
 class Browser:
+    # Headless flag spells differ between Chromium builds; try the modern spell
+    # first, then the legacy one. Each entry is the headless-specific args.
+    _HEADLESS_VARIANTS = (
+        ("--headless=new",),
+        ("--headless",),
+    )
+
     def __init__(self, url: str):
         tmp_root = ROOT / "research" / ".tmp"
         tmp_root.mkdir(parents=True, exist_ok=True)
         self.profile = Path(tempfile.mkdtemp(prefix="landing-smoke-", dir=str(tmp_root)))
-        args = [
+        common = [
             CHROME,
-            "--headless=new",
             "--no-sandbox",
             "--disable-gpu",
             "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
@@ -109,19 +116,36 @@ class Browser:
             f"--user-data-dir={self.profile}",
             url,
         ]
-        self.process = subprocess.Popen(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
         port_file = self.profile / "DevToolsActivePort"
-        deadline = time.time() + 20
-        while time.time() < deadline and not port_file.exists():
-            if self.process.poll() is not None:
-                raise RuntimeError("Chromium exited early")
-            time.sleep(0.05)
+        last_stderr = ""
+        for variant in self._HEADLESS_VARIANTS:
+            if port_file.exists():
+                port_file.unlink()
+            self.process = subprocess.Popen(
+                [CHROME, *variant, *common[1:]],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            deadline = time.time() + 20
+            while time.time() < deadline and not port_file.exists():
+                if self.process.poll() is not None:
+                    break
+                time.sleep(0.05)
+            if port_file.exists() and port_file.read_text().strip():
+                break
+            # Capture why this variant failed and try the next.
+            try:
+                _, err = self.process.communicate(timeout=2)
+                last_stderr = (err or "").strip()
+            except Exception:
+                self.process.kill()
+        if not port_file.exists() or not port_file.read_text().strip():
+            raise RuntimeError(
+                f"Chromium did not expose DevTools (CHROME_BIN={CHROME}). "
+                f"Last stderr: {last_stderr[-500:] or '<none>'}"
+            )
         self.port = int(port_file.read_text().splitlines()[0])
         targets = []
         deadline = time.time() + 15
