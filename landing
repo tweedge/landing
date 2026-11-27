@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Landing entrypoint: build, install, and run the local start page.
+
+Usage:
+    ./landing [install|build|start|stop|restart|status|health|logs|uninstall]
+
+`./landing` with no arguments is `install`: build, install to XDG paths,
+install/enable a systemd user unit when available, start, and healthcheck.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BUILD = ROOT / "scripts" / "build.py"
+SERVE = ROOT / "scripts" / "serve.py"
+CONFIG = ROOT / "config" / "landing.yml"
+DIST = ROOT / "dist"
+
+
+def xdg(name: str, fallback: str) -> Path:
+    value = os.environ.get(name, "").strip()
+    return Path(value) if value else Path.home() / fallback
+
+
+DATA_DIR = xdg("XDG_DATA_HOME", ".local/share") / "landing"
+CONFIG_DIR = xdg("XDG_CONFIG_HOME", ".config") / "landing"
+STATE_DIR = xdg("XDG_STATE_HOME", ".local/state") / "landing"
+UNIT_DIR = xdg("XDG_CONFIG_HOME", ".config") / "systemd/user"
+SITE_DIR = DATA_DIR / "site"
+SERVER_JSON = DATA_DIR / "server.json"
+UNIT_NAME = "landing.service"
+UNIT_PATH = UNIT_DIR / UNIT_NAME
+
+
+def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, check=False, **kwargs)
+
+
+def have_systemd() -> bool:
+    if not shutil.which("systemctl"):
+        return False
+    result = run(["systemctl", "--user", "show-environment"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0
+
+
+def build(refresh_favicons: bool = False) -> None:
+    cmd = [sys.executable, str(BUILD), "--config", str(CONFIG), "--out", str(DIST)]
+    if refresh_favicons:
+        cmd.append("--refresh-favicons")
+    result = run(cmd)
+    if result.returncode != 0:
+        raise SystemExit("build failed")
+
+
+def install_files() -> dict:
+    if not (DIST / "site" / "index.html").is_file():
+        raise SystemExit("build output missing; run ./landing build")
+    SITE_DIR.parent.mkdir(parents=True, exist_ok=True)
+    if SITE_DIR.exists():
+        shutil.rmtree(SITE_DIR)
+    shutil.copytree(DIST / "site", SITE_DIR)
+    shutil.copy2(DIST / "server.json", SERVER_JSON)
+    if (DIST / "config.resolved.json").is_file():
+        shutil.copy2(DIST / "config.resolved.json", DATA_DIR / "config.resolved.json")
+    if (DIST / "build-info.json").is_file():
+        shutil.copy2(DIST / "build-info.json", DATA_DIR / "build-info.json")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(CONFIG, CONFIG_DIR / "landing.yml")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    return json.loads(SERVER_JSON.read_text(encoding="utf-8"))
+
+
+def write_unit() -> None:
+    UNIT_DIR.mkdir(parents=True, exist_ok=True)
+    unit = f"""[Unit]
+Description=Landing local start page
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart={sys.executable} {SERVE} --root {SITE_DIR} --config {SERVER_JSON}
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+"""
+    UNIT_PATH.write_text(unit, encoding="utf-8")
+    run(["systemctl", "--user", "daemon-reload"])
+
+
+def start() -> None:
+    if have_systemd():
+        write_unit()
+        result = run(["systemctl", "--user", "enable", "--now", UNIT_NAME])
+        if result.returncode != 0:
+            raise SystemExit("failed to start landing.service")
+        return
+    pid_file = STATE_DIR / "landing.pid"
+    if pid_file.is_file():
+        try:
+            os.kill(int(pid_file.read_text().strip()), 0)
+            print("Landing is already running (foreground mode).")
+            return
+        except (OSError, ValueError):
+            pid_file.unlink(missing_ok=True)
+    log = (STATE_DIR / "landing.log").open("ab")
+    process = subprocess.Popen(
+        [sys.executable, str(SERVE), "--root", str(SITE_DIR), "--config", str(SERVER_JSON)],
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+    )
+    pid_file.write_text(str(process.pid), encoding="utf-8")
+    print(f"Started Landing in the background (pid {process.pid}); logs: {STATE_DIR / 'landing.log'}")
+
+
+def stop() -> None:
+    if have_systemd() and UNIT_PATH.is_file():
+        run(["systemctl", "--user", "stop", UNIT_NAME])
+        return
+    pid_file = STATE_DIR / "landing.pid"
+    if not pid_file.is_file():
+        print("Landing is not running.")
+        return
+    try:
+        os.kill(int(pid_file.read_text().strip()), 15)
+    except (OSError, ValueError):
+        pass
+    pid_file.unlink(missing_ok=True)
+
+
+def health(server: dict, retries: int = 20) -> bool:
+    host = server.get("host", "127.0.0.1")
+    port = server.get("port", 8080)
+    path = server.get("health_path", "/healthz")
+    url = f"http://{host}:{port}{path}"
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=2) as response:
+                body = response.read().decode("utf-8", "replace").strip()
+                if response.status == 200:
+                    print(f"Healthcheck OK: {url} -> {body}")
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.25)
+    print(f"Healthcheck FAILED: {url}", file=sys.stderr)
+    return False
+
+
+def status() -> int:
+    server = json.loads(SERVER_JSON.read_text(encoding="utf-8")) if SERVER_JSON.is_file() else {}
+    host = server.get("host", "127.0.0.1")
+    port = server.get("port", 8080)
+    print(f"Site:    {SITE_DIR}")
+    print(f"Config:  {CONFIG_DIR / 'landing.yml'}")
+    print(f"URL:     http://{host}:{port}/")
+    if have_systemd() and UNIT_PATH.is_file():
+        result = run(["systemctl", "--user", "is-active", UNIT_NAME], capture_output=True, text=True)
+        print(f"Service: {result.stdout.strip() or 'unknown'} ({UNIT_NAME})")
+    else:
+        pid_file = STATE_DIR / "landing.pid"
+        running = False
+        if pid_file.is_file():
+            try:
+                os.kill(int(pid_file.read_text().strip()), 0)
+                running = True
+            except (OSError, ValueError):
+                running = False
+        print(f"Service: {'running' if running else 'stopped'} (foreground mode)")
+    return 0 if health(server, retries=1) else 1
+
+
+def uninstall(purge: bool) -> None:
+    stop()
+    if have_systemd() and UNIT_PATH.is_file():
+        run(["systemctl", "--user", "disable", UNIT_NAME])
+        UNIT_PATH.unlink(missing_ok=True)
+        run(["systemctl", "--user", "daemon-reload"])
+    shutil.rmtree(DATA_DIR, ignore_errors=True)
+    shutil.rmtree(STATE_DIR, ignore_errors=True)
+    if purge:
+        shutil.rmtree(CONFIG_DIR, ignore_errors=True)
+    print("Landing uninstalled." + ("" if purge else " Configuration kept."))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Landing local start page")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="install",
+        choices=["install", "build", "start", "stop", "restart", "status", "health", "logs", "uninstall"],
+    )
+    parser.add_argument("--refresh-favicons", action="store_true")
+    parser.add_argument("--purge", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.command == "build":
+        build(args.refresh_favicons)
+        return 0
+    if args.command == "install":
+        build(args.refresh_favicons)
+        server = install_files()
+        start()
+        if not health(server):
+            return 1
+        print(f"Landing installed and running at http://{server.get('host', '127.0.0.1')}:{server.get('port', 8080)}/")
+        return 0
+    if args.command == "start":
+        start()
+        return 0
+    if args.command == "stop":
+        stop()
+        return 0
+    if args.command == "restart":
+        build(args.refresh_favicons)
+        server = install_files()
+        if have_systemd():
+            write_unit()
+            run(["systemctl", "--user", "restart", UNIT_NAME])
+        else:
+            stop()
+            start()
+        return 0 if health(server) else 1
+    if args.command == "status":
+        return status()
+    if args.command == "health":
+        server = json.loads(SERVER_JSON.read_text(encoding="utf-8"))
+        return 0 if health(server) else 1
+    if args.command == "logs":
+        if have_systemd() and UNIT_PATH.is_file():
+            return run(["journalctl", "--user", "-u", UNIT_NAME, "-n", "100", "--no-pager"]).returncode
+        log = STATE_DIR / "landing.log"
+        if log.is_file():
+            sys.stdout.write(log.read_text(encoding="utf-8", errors="replace"))
+            return 0
+        print("No logs yet.", file=sys.stderr)
+        return 1
+    if args.command == "uninstall":
+        uninstall(args.purge)
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

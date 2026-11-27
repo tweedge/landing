@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="{{ site.lang }}" data-theme="{{ theme.mode }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ site.title }}{% if site.subtitle %} · {{ site.subtitle }}{% endif %}</title>
+  <meta name="description" content="{{ site.description }}">
+  <meta name="referrer" content="no-referrer">
+  {% if noindex %}<meta name="robots" content="noindex,nofollow">{% endif %}
+  <meta name="theme-color" content="{{ theme.meta_color }}">
+  {{ csp_meta|safe }}
+  {% if favicon_url %}<link rel="icon" href="{{ favicon_url }}">{% endif %}
+  {% if single_file %}
+  <style>{{ inline_css|safe }}</style>
+  {% else %}
+  {% if has_pwa %}<link rel="manifest" href="{{ manifest_url }}">{% endif %}
+  <link rel="stylesheet" href="{{ styles_url }}">
+  {% endif %}
+</head>
+<body data-base-path="{{ base_path }}" data-config-hash="{{ config_hash }}" data-card-style="{{ theme.card_style }}">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="floating-controls">
+    <div class="network-wrap">
+      <button id="location-button" class="pill-button" type="button" aria-haspopup="true" aria-expanded="false" title="Location">
+        <span class="status-dot" data-role="location-dot"></span>
+        <span id="landing-location" aria-live="polite">Checking…</span>
+      </button>
+      <div id="location-menu" class="menu" hidden>
+        <div class="menu-heading">Location</div>
+        <button type="button" data-location="auto">Auto <span class="menu-hint">detect</span></button>
+        <button type="button" data-location="home">Home</button>
+        <button type="button" data-location="away">Away</button>
+        <div class="menu-note" id="landing-location-detail" hidden></div>
+      </div>
+    </div>
+    <div class="network-wrap">
+      <button id="connectivity-button" class="pill-button" type="button" aria-haspopup="true" aria-expanded="false" title="Connectivity">
+        <span class="status-dot" data-role="connectivity-dot"></span>
+        <span id="landing-connectivity" aria-live="polite">Checking…</span>
+      </button>
+      <div id="connectivity-menu" class="menu" hidden>
+        <div class="menu-heading">Connectivity</div>
+        <button type="button" data-connectivity="auto">Auto <span class="menu-hint">detect</span></button>
+        <button type="button" data-connectivity="online">Online</button>
+        <button type="button" data-connectivity="offline">Offline</button>
+        <hr>
+        <button type="button" id="recheck-button">Recheck now</button>
+      </div>
+    </div>
+    <button id="help-button" class="icon-button" type="button" title="Help" aria-label="Help">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>
+    </button>
+  </div>
+
+  <div id="landing-banner" class="banner" hidden></div>
+
+  {% if search.enabled %}
+  <section class="hero" aria-label="Search">
+    <form id="landing-search-form" class="hero-search" role="search" action="{{ search.engine | replace('{query}', '') }}" method="get" target="{{ '_blank' if search.open_in_new_tab else '_self' }}">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+      <input id="landing-search" type="search" name="q" placeholder="{{ search.placeholder }}" autocomplete="off" spellcheck="false" aria-label="Search the web" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="landing-suggestions"{% if search.focus %} autofocus{% endif %}>
+      <button type="submit" class="hero-search-go" aria-label="Search">Go</button>
+      <ul id="landing-suggestions" class="suggestions" role="listbox" aria-label="Suggestions" hidden></ul>
+    </form>
+    <p class="hero-hint" id="landing-search-hint">Enter to search {{ search.engine_name }}</p>
+  </section>
+  {% endif %}
+
+  <main id="main" class="main">
+    <div id="landing-groups" class="groups" aria-busy="true">
+      {% for group in groups %}
+      <section class="group" data-group-id="{{ group.id }}" data-show-when="{{ group.show_when|join(',') }}" data-hide-when="{{ group.hide_when|join(',') }}">
+        <header class="group-header">
+          <span class="group-icon">{{ group.icon_html|safe }}</span>
+          <h2>{{ group.name }}</h2>
+        </header>
+        <div class="cards">
+          {% for link in group.links if not link.hidden %}
+          <a class="card" data-link-id="{{ link.id }}" data-url="{{ link.url }}" data-lan-url="{{ link.lan_url }}" data-availability="{{ link.availability }}" data-prefer="{{ link.prefer }}" data-probe="{{ 'true' if link.probe else 'false' }}" data-probe-url="{{ link.probe_url }}" href="{{ link.href_default }}" target="{{ link.target }}" rel="{{ link.rel }}">
+            <span class="card-icon">{{ link.icon_html|safe }}</span>
+            <span class="card-title">{{ link.name }}</span>
+            {% if link.hotkey %}<span class="card-hotkey" aria-hidden="true">{{ link.hotkey }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    </div>
+  </main>
+
+  <div id="landing-toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="redirect-view" class="redirect" hidden>
+    <div class="redirect-card">
+      <div class="redirect-icon" data-role="redirect-icon"></div>
+      <p class="eyebrow" data-role="redirect-eyebrow">Taking you there</p>
+      <h2 data-role="redirect-name">Service</h2>
+      <p class="redirect-host" data-role="redirect-host"></p>
+      <p class="redirect-reason" data-role="redirect-reason"></p>
+      <div class="redirect-progress"><span data-role="redirect-countdown">1.5</span>s</div>
+      <div class="redirect-actions">
+        <button type="button" class="button primary" data-role="redirect-go">Go now</button>
+        <button type="button" class="button" data-role="redirect-cancel">Cancel</button>
+      </div>
+      <button type="button" class="link-button" data-role="redirect-retry" hidden>Retry network check</button>
+    </div>
+  </div>
+
+  <dialog id="help-dialog" class="shortcuts help-dialog">
+    <div class="dialog-head">
+      <h2>Landing help</h2>
+      <button type="button" class="icon-button" id="help-close" aria-label="Close help">×</button>
+    </div>
+    <section class="help-section">
+      <h3>Network status</h3>
+      <p>Two pills show independent facts: <strong>Home/Away</strong> (LAN reachability) and <strong>Online/Offline</strong> (Internet). Each service is healthy, degraded (LAN down but a public fallback works), or unreachable. Use the pill menus to force a state or recheck. See CONNECTION.md for the full matrix.</p>
+    </section>
+    <section class="help-section">
+      <h3>Bookmarks</h3>
+      <p>Drag any service card to your bookmarks bar, or right-click it and choose “Bookmark Link”. Each card links to <code>/go/&lt;service&gt;/</code>, which resolves the right URL for the current network. Browsers do not allow a page to add bookmarks automatically.</p>
+    </section>
+    <section class="help-section">
+      <h3>Keyboard</h3>
+      <dl>
+        <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Open an exact service match, otherwise search the web</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Clear search or cancel redirect</dd></div>
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between services</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Open the focused service</dd></div>
+        <div><dt><kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd></dt><dd>Open in a new tab</dd></div>
+        <div><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open a service with that hotkey</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
+      </dl>
+    </section>
+    <section class="help-section">
+      <h3>Hidden features</h3>
+      <ul class="help-list">
+        <li><code>/go/ha/</code> — redirect to a configured service.</li>
+        <li><code>?mode=lan|wan|offline</code> — force a network mode for this load.</li>
+        <li><code>?delay=0..5000</code> or <code>?now=1</code> — adjust or skip the redirect delay.</li>
+        <li><code>?help=1</code> — open this help.</li>
+      </ul>
+    </section>
+    <div class="dialog-actions">
+      <button type="button" class="button" id="help-close-2">Close</button>
+    </div>
+  </dialog>
+
+  <noscript>
+    <div class="noscript">JavaScript is required for network-aware URLs and redirects. Links below use public URLs (or LAN URLs for LAN-only links).</div>
+  </noscript>
+
+  <script type="application/json" id="landing-config">{{ config_json|safe }}</script>
+  {% if single_file %}
+  <script>{{ inline_js|safe }}</script>
+  {% else %}
+  <script src="{{ app_js_url }}" defer></script>
+  {% endif %}
+</body>
+</html>

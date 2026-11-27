@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{ site.lang }}" data-theme="{{ theme.mode }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="{{ theme.meta_color }}">
+  {{ csp_meta|safe }}
+  {% if icon_url %}<link rel="icon" href="{{ icon_url }}">{% endif %}
+  <title>Opening {{ name }}…</title>
+  <style>{{ inline_css|safe }}</style>
+</head>
+<body class="redirect-page" data-base-path="{{ base_path }}">
+  <main class="redirect-shell" role="status" aria-live="polite">
+    <div class="redirect-boot" id="redirect-boot">
+      <span class="redirect-boot-dot" aria-hidden="true"></span>
+      <span id="redirect-status">Opening {{ name }}…</span>
+    </div>
+
+    <div class="redirect-fail" id="redirect-fail" hidden>
+      <div class="redirect-icon" id="redirect-fail-icon"></div>
+      <h1 id="redirect-fail-title">Can’t open {{ name }}</h1>
+      <p class="redirect-fail-reason" id="redirect-fail-reason"></p>
+      <div class="redirect-fail-actions">
+        <button type="button" class="button primary" id="redirect-retry">Try again</button>
+        <a class="button" href="{{ base_path }}">Go to Landing</a>
+      </div>
+    </div>
+  </main>
+
+  <script type="application/json" id="landing-redirect">{{ redirect_json|safe }}</script>
+  <script>{{ inline_js|safe }}</script>
+</body>
+</html>

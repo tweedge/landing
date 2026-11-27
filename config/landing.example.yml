@@ -1,0 +1,281 @@
+# Landing example configuration
+#
+# This file is a template. Copy it to your own config and edit the values:
+#
+#   ./landing init                 # writes ./config/landing.yml if missing
+#   cp config/landing.example.yml config/landing.yml
+#
+# Personal configuration files are gitignored (config/landing.yml), so your real
+# hosts and URLs never get committed. Only this example is tracked.
+
+version: 1
+
+site:
+  title: Landing
+  subtitle: ""
+  description: A quiet place for everything at home.
+  lang: en
+  noindex: true
+
+theme:
+  preset: catppuccin-warm
+  mode: dark
+  accent: "#f0a06a"
+  radius: 18
+  density: comfortable
+  font: system
+  card_style: hairline
+  background:
+    image: null
+    position: center
+    size: cover
+    overlay: "rgba(30, 20, 15, 0.16)"
+    blur: 0
+    brightness: 1
+  colors:
+    light:
+      bg: "#f7efe7"
+      surface: "#fffaf5"
+      text: "#4a3b36"
+      muted: "#8c7a70"
+      border: "#e6d6c8"
+      accent: "#c96f3b"
+      accent2: "#b56a7a"
+      success: "#6f9b72"
+      warning: "#b9822f"
+      danger: "#c95f5f"
+    dark:
+      bg: "#1e1917"
+      surface: "#2a2320"
+      text: "#f4e8df"
+      muted: "#b9a79d"
+      border: "#3d322e"
+      accent: "#f0a06a"
+      accent2: "#e3a0a0"
+      success: "#9bc49a"
+      warning: "#e6c07b"
+      danger: "#e88a8a"
+
+layout:
+  columns: 3
+  max_width: 1400
+  groups_max_width: 1080
+
+defaults:
+  target: _blank
+  icon_style: flat
+  availability: always
+  prefer: auto
+  icon: link
+
+search:
+  enabled: true
+  placeholder: Search the web…
+  hotkey: /
+  focus: true
+  engine: https://duckduckgo.com/?q={query}
+  engine_name: DuckDuckGo
+  open_in_new_tab: false
+  suggestions: true
+  suggest_url: https://duckduckgo.com/ac/?q={query}&type=list
+  suggest_limit: 6
+
+probe:
+  internet:
+    urls: [https://example.org/, https://example.com/, https://www.gstatic.com/generate_204]
+    mode: no-cors
+    timeout_ms: 2500
+  lan:
+    source: links
+    urls: []
+    max_links: 20
+    timeout_ms: 2500
+    random_query: true
+    ip_fallback: null
+    random_subdomain: false
+    domain: null
+    accept_untrusted_cert: true
+    pin_certificates: false
+    pins: {}
+  captive_portal:
+    enabled: true
+    urls:
+      - url: http://connectivitycheck.gstatic.com/generate_204
+        expect_status: 204
+      - url: http://captive.apple.com/hotspot-detect.html
+        expect_body: Success
+      - url: http://www.msftconnecttest.com/connecttest.txt
+        expect_body: Microsoft Connect Test
+  cache_ttl_ms: 30000
+  recheck_on: [online, offline, visibilitychange, focus]
+  homepage: true
+
+redirect:
+  enabled: true
+  delay_ms: 0
+  max_delay_ms: 5000
+  allow_mode_override: true
+  allow_delay_override: true
+  show_target_host: true
+  cancel: true
+  generate_static_pages: true
+
+pwa:
+  enabled: true
+  name: Landing
+  short_name: Landing
+  description: Homelab landing page
+  theme_color: "#1e1917"
+  background_color: "#1e1917"
+  display: standalone
+  start_url: /
+  scope: /
+  icons: []
+  shortcuts:
+    - name: Home Assistant
+      url: /go/ha/
+
+favicons:
+  enabled: true
+  refresh: false
+  timeout_ms: 5000
+  max_bytes: 1048576
+  allow_private_hosts: true
+  cache_dir: assets/favicons
+  prefer: [svg, png, ico]
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  health_path: /healthz
+  probe: true
+
+build:
+  base_url: http://localhost:8080/
+  base_path: /
+  output_dir: dist
+  single_file: true
+  minify: false
+  noindex: true
+  allow_remote_assets: false
+  source_date_epoch: 0
+
+groups:
+  - id: home
+    name: Home
+    icon: home
+    order: 10
+    links:
+      - id: ha
+        name: Home Assistant
+        icon: auto
+        url: https://ha.example.com/
+        lan_url: http://ha.lan/
+        target: _self
+        hotkey: "1"
+
+  - id: media
+    name: Media
+    icon: play
+    order: 20
+    links:
+      - id: plex
+        name: Plex
+        icon: play
+        url: https://app.plex.tv/
+        lan_url: https://plex.lan:32400/
+      - id: jellyfin
+        name: Jellyfin
+        icon: play
+        url: https://jellyfin.example.com/
+        lan_url: http://jellyfin.lan:8096/
+      - id: qbittorrent
+        name: qBittorrent
+        icon: download
+        url: https://qbt.example.com/
+        lan_url: http://qbt.lan:8080/
+
+  - id: automation
+    name: Automation
+    icon: server
+    order: 30
+    links:
+      - id: node-red
+        name: Node-RED
+        icon: chart
+        lan_url: http://node-red.lan:1880/
+        availability: lan_only
+      - id: zigbee2mqtt
+        name: Zigbee2MQTT
+        icon: wifi
+        lan_url: http://zigbee.lan:8080/
+        availability: lan_only
+
+  - id: infra
+    name: Infrastructure
+    icon: server
+    order: 40
+    links:
+      - id: proxmox
+        name: Proxmox
+        icon: server
+        url: https://proxmox.example.com:8006/
+        lan_url: https://proxmox.lan:8006/
+        availability: always
+      - id: pihole
+        name: Pi-hole
+        icon: shield
+        lan_url: http://pi.hole/admin/
+        availability: lan_only
+      - id: portainer
+        name: Portainer
+        icon: cloud
+        lan_url: https://portainer.lan/
+        availability: lan_only
+      - id: grafana
+        name: Grafana
+        icon: chart
+        url: https://grafana.example.com/
+        lan_url: http://grafana.lan:3000/
+      - id: uptime-kuma
+        name: Uptime Kuma
+        icon: alert
+        lan_url: http://uptime.lan:3001/
+        availability: lan_only
+
+  - id: files
+    name: Files & Photos
+    icon: cloud
+    order: 50
+    links:
+      - id: nextcloud
+        name: Nextcloud
+        icon: cloud
+        url: https://cloud.example.com/
+        lan_url: http://nextcloud.lan/
+      - id: immich
+        name: Immich
+        icon: camera
+        url: https://photos.example.com/
+        lan_url: http://immich.lan:2283/
+      - id: vaultwarden
+        name: Vaultwarden
+        icon: lock
+        lan_url: https://vault.lan/
+        availability: lan_only
+
+  - id: coding
+    name: Coding
+    icon: terminal
+    order: 60
+    links:
+      - id: gitea
+        name: Gitea
+        icon: terminal
+        lan_url: http://gitea.lan:3000/
+        availability: lan_only
+      - id: github
+        name: GitHub
+        icon: globe
+        icon_background: "#f3e3d3"
+        url: https://github.com/
