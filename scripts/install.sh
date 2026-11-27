@@ -35,7 +35,8 @@ arch="$(uname -m)"
 case "$arch" in
   x86_64 | amd64) arch=amd64 ;;
   aarch64 | arm64) arch=arm64 ;;
-  armv6l | armv7l | arm) arch=arm ;;
+  armv6l) die "ARMv6 is not supported (no prebuilt binary); build from source with 'cargo build --release'. Download a release manually from https://github.com/${REPO}/releases" ;;
+  armv7l | arm) arch=arm ;;
   i386 | i686) arch=386 ;;
   *) die "unsupported architecture '$arch'. Download a release manually from https://github.com/${REPO}/releases" ;;
 esac
@@ -57,18 +58,21 @@ trap 'rm -rf "$tmpdir"' EXIT INT TERM
 say "downloading ${url}"
 curl -fsSL "$url" -o "${tmpdir}/${asset}" || die "download failed - is '${version}' a real release, and does it have a ${os}/${arch} build?"
 
-# Verify the checksum when the release ships SHA256SUMS.
+# Verify the checksum when the release ships SHA256SUMS. sha256sum lines look
+# like "<hash>  ./landing_linux_amd64.tar.gz" or "<hash>  landing_linux_amd64.tar.gz",
+# so strip any leading ./* marker before comparing the filename.
 if curl -fsSL "https://github.com/${REPO}/releases/download/${version}/SHA256SUMS" -o "${tmpdir}/SHA256SUMS" 2>/dev/null; then
-  expected="$(grep "  ${asset}\$" "${tmpdir}/SHA256SUMS" | cut -d ' ' -f1)"
-  if [ -n "$expected" ]; then
-    if command -v sha256sum >/dev/null 2>&1; then
-      actual="$(sha256sum "${tmpdir}/${asset}" | cut -d ' ' -f1)"
-    else
-      actual="$(shasum -a 256 "${tmpdir}/${asset}" | cut -d ' ' -f1)"
-    fi
-    [ "$actual" = "$expected" ] || die "checksum mismatch for ${asset}"
-    say "checksum verified"
+  expected="$(awk -v f="${asset}" '{ name=$2; sub(/^\*/, "", name); sub(/^\.\//, "", name); if (name==f) { print $1; exit } }' "${tmpdir}/SHA256SUMS")"
+  [ -n "$expected" ] || die "SHA256SUMS is present but has no entry for ${asset}; refusing to install unverified"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${tmpdir}/${asset}" | cut -d ' ' -f1)"
+  else
+    actual="$(shasum -a 256 "${tmpdir}/${asset}" | cut -d ' ' -f1)"
   fi
+  [ "$actual" = "$expected" ] || die "checksum mismatch for ${asset}"
+  say "checksum verified"
+else
+  say "warning: no SHA256SUMS published for ${version}; skipping checksum verification"
 fi
 
 tar -C "$tmpdir" -xzf "${tmpdir}/${asset}"

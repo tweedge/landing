@@ -12,7 +12,6 @@ use url::Url;
 
 use crate::config::Config;
 use crate::icons;
-
 /// A resolved favicon: normalized bytes and the extension to save with.
 pub struct FetchedIcon {
     pub data: Vec<u8>,
@@ -31,7 +30,12 @@ fn is_private_host(host: &str) -> bool {
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         return match ip {
             std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-            std::net::IpAddr::V6(v6) => v6.is_loopback(),
+            // Loopback, unique-local (fc00::/7), and link-local (fe80::/10).
+            // Checked via the first segment to avoid newer std APIs (MSRV 1.75).
+            std::net::IpAddr::V6(v6) => {
+                let seg0 = v6.segments()[0];
+                v6.is_loopback() || (seg0 & 0xfe00) == 0xfc00 || (seg0 & 0xffc0) == 0xfe80
+            }
         };
     }
     false
@@ -72,11 +76,33 @@ fn fetch_bytes(client: &reqwest::blocking::Client, url: &str, max_bytes: usize) 
     })
 }
 
+// Compiled once and shared across every link/page (OnceLock keeps MSRV at 1.75).
+fn link_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?is)<link\b[^>]*>").unwrap())
+}
+fn rel_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(?is)rel\s*=\s*["']([^"']*)["']"#).unwrap())
+}
+fn href_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(?is)href\s*=\s*["']([^"']*)["']"#).unwrap())
+}
+fn sizes_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(?is)sizes\s*=\s*["']([^"']*)["']"#).unwrap())
+}
+fn danger_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)<script|on\w+\s*=|javascript:").unwrap())
+}
+
 fn discover_icon_urls(page_url: &str, page_html: &str) -> Vec<String> {
-    let link_re = Regex::new(r"(?is)<link\b[^>]*>").unwrap();
-    let rel_re = Regex::new(r#"(?is)rel\s*=\s*["']([^"']*)["']"#).unwrap();
-    let href_re = Regex::new(r#"(?is)href\s*=\s*["']([^"']*)["']"#).unwrap();
-    let sizes_re = Regex::new(r#"(?is)sizes\s*=\s*["']([^"']*)["']"#).unwrap();
+    let link_re = link_re();
+    let rel_re = rel_re();
+    let href_re = href_re();
+    let sizes_re = sizes_re();
     let icon_types = [
         "icon",
         "shortcut icon",
@@ -139,7 +165,7 @@ fn normalize_icon(data: &[u8], content_type: &str, url: &str) -> Option<(Vec<u8>
         if !text.to_lowercase().contains("<svg") {
             return None;
         }
-        let danger = Regex::new(r"(?i)<script|on\w+\s*=|javascript:").unwrap();
+        let danger = danger_re();
         if danger.is_match(&text) {
             return None;
         }

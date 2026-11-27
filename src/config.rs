@@ -677,32 +677,11 @@ fn normalize(raw: RawConfig) -> Result<Config> {
         colors,
     };
 
-    let layout = raw.layout.unwrap_or(Layout {
-        columns: 3,
-        max_width: 1400,
-        groups_max_width: 1080,
-    });
+    let layout = raw.layout.unwrap_or_default();
 
-    let defaults = raw.defaults.unwrap_or(Defaults {
-        target: "_blank".into(),
-        icon_style: "flat".into(),
-        availability: "always".into(),
-        prefer: "auto".into(),
-        icon: "link".into(),
-    });
+    let defaults = raw.defaults.unwrap_or_default();
 
-    let search = raw.search.unwrap_or(Search {
-        enabled: true,
-        placeholder: "Search the web…".into(),
-        hotkey: "/".into(),
-        focus: true,
-        engine: "https://duckduckgo.com/?q={query}".into(),
-        engine_name: "DuckDuckGo".into(),
-        open_in_new_tab: false,
-        suggestions: true,
-        suggest_url: "https://duckduckgo.com/ac/?q={query}&type=list".into(),
-        suggest_limit: 6,
-    });
+    let search = raw.search.unwrap_or_default();
 
     let probe_raw = raw.probe.unwrap_or_default();
     let internet_raw = probe_raw.internet.unwrap_or_default();
@@ -754,16 +733,7 @@ fn normalize(raw: RawConfig) -> Result<Config> {
         homepage: probe_raw.homepage.unwrap_or(false),
     };
 
-    let redirect = raw.redirect.unwrap_or(Redirect {
-        enabled: true,
-        delay_ms: 0,
-        max_delay_ms: 5000,
-        allow_mode_override: true,
-        allow_delay_override: true,
-        show_target_host: true,
-        cancel: true,
-        generate_static_pages: true,
-    });
+    let redirect = raw.redirect.unwrap_or_default();
 
     let pwa_raw = raw.pwa.unwrap_or_default();
     let dark_bg_for_pwa = theme.colors.dark.bg.clone();
@@ -802,12 +772,7 @@ fn normalize(raw: RawConfig) -> Result<Config> {
             .unwrap_or_else(|| vec!["svg".into(), "png".into(), "ico".into()]),
     };
 
-    let server = raw.server.unwrap_or(Server {
-        host: "127.0.0.1".into(),
-        port: 8080,
-        health_path: "/healthz".into(),
-        probe: true,
-    });
+    let server = raw.server.unwrap_or_default();
 
     let build_raw = raw.build.unwrap_or_default();
     let mut base_url = build_raw
@@ -1142,6 +1107,31 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     }
     if config.redirect.max_delay_ms < config.redirect.delay_ms {
         bail!("redirect.max_delay_ms must be >= delay_ms");
+    }
+
+    // Server binding must be sane: a 0 port binds an ephemeral one, and an empty
+    // host can bind all interfaces. health_path is used to answer probes.
+    if config.server.port == 0 {
+        bail!("server.port must be between 1 and 65535");
+    }
+    if config.server.host.trim().is_empty() {
+        bail!("server.host must not be empty");
+    }
+    if !config.server.health_path.starts_with('/') {
+        bail!("server.health_path must start with '/'");
+    }
+    let host = config.server.host.trim();
+    let is_loopback = host == "127.0.0.1"
+        || host == "::1"
+        || host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if !is_loopback {
+        warnings.push(format!(
+            "server.host is {host}, not loopback; the site is reachable from other machines."
+        ));
     }
 
     Ok(warnings)

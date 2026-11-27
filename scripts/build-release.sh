@@ -33,8 +33,12 @@ for spec in "${TARGETS[@]}"; do
   name="landing_linux_${arch}"
 
   if [ -n "${cross_cc:-}" ] && ! command -v "$cross_cc" >/dev/null; then
-    echo "skipping ${name}: missing cross compiler ${cross_cc}" >&2
-    continue
+    if [ -n "${ALLOW_PARTIAL:-}" ]; then
+      echo "skipping ${name}: missing cross compiler ${cross_cc}" >&2
+      continue
+    fi
+    echo "error: missing cross compiler ${cross_cc} for ${name}; set ALLOW_PARTIAL=1 to skip" >&2
+    exit 1
   fi
 
   echo "building ${name} (${triple})..."
@@ -54,7 +58,7 @@ for spec in "${TARGETS[@]}"; do
 done
 
 if [ -z "${SKIP_SUMS:-}" ]; then
-  ( cd "$OUT_DIR"; sha256sum ./*.tar.gz > SHA256SUMS )
+  ( cd "$OUT_DIR"; for f in *.tar.gz; do [ -e "$f" ] || continue; sha256sum "$f"; done > SHA256SUMS )
 fi
 
 ls -la "$OUT_DIR"

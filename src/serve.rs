@@ -11,8 +11,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
-use crate::favicon::is_private_host_pub;
-
 pub struct ServeOptions {
     pub root: PathBuf,
     pub config_path: PathBuf,
@@ -78,10 +76,10 @@ fn build_info(root: &Path) -> (String, String) {
     (get("version"), get("build_hash"))
 }
 
-fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
+fn http_client(timeout: Duration, accept_untrusted: bool) -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .timeout(timeout)
-        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_certs(accept_untrusted)
         .user_agent("Landing-Probe/0.3")
         .build()?)
 }
@@ -121,6 +119,116 @@ fn probe_url(client: &reqwest::blocking::Client, url: &str, expect: &str) -> Pro
     }
 }
 
+/// A certificate verifier that accepts any chain but records the leaf, so a
+/// pin can be computed from self-signed LAN services (equivalent to Python's
+/// `CERT_NONE` context, which still exposed `getpeercert(binary_form=True)`).
+#[derive(Debug)]
+struct CapturingVerifier {
+    leaf: std::sync::Mutex<Option<Vec<u8>>>,
+}
+
+impl rustls::client::danger::ServerCertVerifier for CapturingVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        *self.leaf.lock().unwrap() = Some(end_entity.as_ref().to_vec());
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// Probe LAN entries concurrently. Returns each entry's URL, outcome, and the
+/// captured certificate fingerprint when a pin was requested. Order matches
+/// `entries` so callers can zip results back to their config.
+fn probe_lan_entries(
+    client: &reqwest::blocking::Client,
+    entries: &[Value],
+    pin_enabled: bool,
+    pins: &Value,
+    timeout: Duration,
+) -> Vec<(String, ProbeOutcome, Option<String>)> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = entries
+            .iter()
+            .map(|entry| {
+                scope.spawn(move || {
+                    let url = entry
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let expect = entry.get("expect").and_then(|v| v.as_str()).unwrap_or("");
+                    let mut outcome = probe_url(client, &url, expect);
+                    let mut fingerprint = None;
+                    if pin_enabled && outcome.ok {
+                        if let Some(expected) = pins.get(&url).and_then(|v| v.as_str()) {
+                            fingerprint = cert_fingerprint(&url, timeout);
+                            if fingerprint.as_deref() != Some(expected) {
+                                outcome.ok = false;
+                                outcome.pin_mismatch = true;
+                            }
+                        }
+                    }
+                    (url, outcome, fingerprint)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|_| {
+                    (
+                        String::new(),
+                        ProbeOutcome {
+                            ok: false,
+                            pin_mismatch: false,
+                        },
+                        None,
+                    )
+                })
+            })
+            .collect()
+    })
+}
+
 fn cert_fingerprint(url: &str, timeout: Duration) -> Option<String> {
     // reqwest does not expose the peer certificate; use rustls directly for pins.
     let parsed = url::Url::parse(url).ok()?;
@@ -129,10 +237,12 @@ fn cert_fingerprint(url: &str, timeout: Duration) -> Option<String> {
     }
     let host = parsed.host_str()?.to_string();
     let port = parsed.port_or_known_default().unwrap_or(443);
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots());
+    let verifier = Arc::new(CapturingVerifier {
+        leaf: std::sync::Mutex::new(None),
+    });
     let config = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(verifier.clone())
         .with_no_client_auth();
     let server_name = rustls::pki_types::ServerName::try_from(host).ok()?;
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).ok()?;
@@ -150,16 +260,10 @@ fn cert_fingerprint(url: &str, timeout: Duration) -> Option<String> {
             break;
         }
     }
-    let certs = conn.peer_certificates()?;
-    let der = certs.first()?;
+    let leaf = verifier.leaf.lock().unwrap().clone()?;
     let mut hasher = Sha256::new();
-    hasher.update(der.as_ref());
+    hasher.update(&leaf);
     Some(format!("{:x}", hasher.finalize()))
-}
-
-fn webpki_roots() -> Vec<rustls::pki_types::TrustAnchor<'static>> {
-    // Pinning only needs the peer certificate bytes, not trust validation.
-    Vec::new()
 }
 
 fn detect_captive_portal(probe: &Value, client: &reqwest::blocking::Client) -> bool {
@@ -212,7 +316,11 @@ fn probe_location(config: &Value, slug: Option<&str>) -> Value {
             .and_then(|v| v.as_u64())
             .unwrap_or(2500),
     );
-    let client = match http_client(timeout) {
+    let accept_untrusted = probe
+        .get("accept_untrusted_cert")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let client = match http_client(timeout, accept_untrusted) {
         Ok(c) => c,
         Err(_) => return json!({"error": "client"}),
     };
@@ -231,41 +339,29 @@ fn probe_location(config: &Value, slug: Option<&str>) -> Value {
         .collect::<Vec<_>>();
 
     let captive = detect_captive_portal(&probe, &client);
-    let accept_untrusted = probe
-        .get("accept_untrusted_cert")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let _ = accept_untrusted;
     let pin_enabled = probe
         .get("pin_certificates")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let pins = probe.get("pins").cloned().unwrap_or(json!({}));
 
-    let mut tried = Vec::new();
-    let mut ok_count = 0;
-    for entry in &entries {
-        let url = entry.get("url").and_then(|v| v.as_str()).unwrap_or("");
-        let expect = entry.get("expect").and_then(|v| v.as_str()).unwrap_or("");
-        let mut outcome = probe_url(&client, url, expect);
-        if pin_enabled && outcome.ok {
-            if let Some(expected) = pins.get(url).and_then(|v| v.as_str()) {
-                if cert_fingerprint(url, timeout).as_deref() != Some(expected) {
-                    outcome.ok = false;
-                    outcome.pin_mismatch = true;
-                }
-            }
-        }
-        if outcome.ok {
-            ok_count += 1;
-        }
-        tried.push(json!({
-            "slug": entry.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
-            "url": url,
-            "ok": outcome.ok,
-            "pin_mismatch": outcome.pin_mismatch,
-        }));
-    }
+    // Probe LAN entries concurrently, bounded like the original Python pool, so
+    // an "away" result costs ~one timeout instead of N sequential timeouts.
+    let outcomes = probe_lan_entries(&client, &entries, pin_enabled, &pins, timeout);
+    let ok_count = outcomes.iter().filter(|(_, o, _)| o.ok).count();
+    let tried: Vec<Value> = entries
+        .iter()
+        .zip(outcomes)
+        .map(|(entry, (url, outcome, expected_pin))| {
+            let _ = expected_pin;
+            json!({
+                "slug": entry.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
+                "url": url,
+                "ok": outcome.ok,
+                "pin_mismatch": outcome.pin_mismatch,
+            })
+        })
+        .collect();
 
     let home = if slug.is_some() {
         !tried.is_empty()
@@ -294,25 +390,40 @@ fn probe_connectivity(config: &Value) -> Value {
             .and_then(|v| v.as_u64())
             .unwrap_or(2500),
     );
-    let client = match http_client(timeout) {
+    let accept_untrusted = probe
+        .get("accept_untrusted_cert")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let client = match http_client(timeout, accept_untrusted) {
         Ok(c) => c,
         Err(_) => return json!({"error": "client"}),
     };
     let captive = detect_captive_portal(&probe, &client);
     let empty = Vec::new();
-    let urls = probe
+    let urls: Vec<String> = probe
         .get("internet")
         .and_then(|v| v.as_array())
-        .unwrap_or(&empty);
-    let mut online = if urls.is_empty() { None } else { Some(false) };
-    for url in urls {
-        if let Some(url) = url.as_str() {
-            if probe_url(&client, url, "").ok {
-                online = Some(true);
-                break;
-            }
-        }
-    }
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|u| u.as_str().map(|s| s.to_string()))
+        .collect();
+    // Probe all internet URLs concurrently and take any(ok); the offline case
+    // then costs ~one timeout instead of N.
+    let online = if urls.is_empty() {
+        None
+    } else {
+        let any_ok = std::thread::scope(|scope| {
+            let handles: Vec<_> = urls
+                .iter()
+                .map(|u| {
+                    let client = &client;
+                    scope.spawn(move || probe_url(client, u, "").ok)
+                })
+                .collect();
+            handles.into_iter().any(|h| h.join().unwrap_or(false))
+        });
+        Some(any_ok)
+    };
     let online = if captive { Some(false) } else { online };
     json!({ "online": online, "captivePortal": captive })
 }
@@ -335,7 +446,7 @@ fn fetch_suggestions(config: &Value, query: &str) -> Vec<String> {
         &percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC)
             .to_string(),
     );
-    let client = match http_client(Duration::from_secs(3)) {
+    let client = match http_client(Duration::from_secs(3), true) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
@@ -498,8 +609,16 @@ fn json_response(
     payload: &Value,
     headers: &BTreeMap<String, String>,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
+    json_response_with_status(payload, headers, StatusCode(200))
+}
+
+fn json_response_with_status(
+    payload: &Value,
+    headers: &BTreeMap<String, String>,
+    status: StatusCode,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = serde_json::to_string(payload).unwrap_or_default() + "\n";
-    let mut response = Response::from_string(body).with_status_code(StatusCode(200));
+    let mut response = Response::from_string(body).with_status_code(status);
     add_headers(&mut response, headers);
     response.add_header(header("Content-Type", "application/json"));
     response.add_header(header("Cache-Control", "no-store"));
@@ -548,7 +667,12 @@ fn handle(
             "site": version,
             "build": build_hash,
         });
-        json_response(&payload, headers)
+        let status = if healthy {
+            StatusCode(200)
+        } else {
+            StatusCode(503)
+        };
+        json_response_with_status(&payload, headers, status)
     } else if path == "/api/network" {
         let cfg = config.lock().unwrap().clone();
         let payload = json!({
@@ -623,7 +747,17 @@ fn handle(
     if send_body {
         let _ = request.respond(response);
     } else {
-        let _ = request.respond(Response::empty(response.status_code()));
+        // HEAD: send no body but preserve every header (Content-Type, CSP, and
+        // the security headers) so HEAD clients see the same policy as GET.
+        let status = response.status_code();
+        let mut head = Response::empty(status);
+        for header in response.headers() {
+            if header.field.equiv("Content-Length") {
+                continue;
+            }
+            head.add_header(header.clone());
+        }
+        let _ = request.respond(head);
     }
 }
 
@@ -638,9 +772,4 @@ fn query_param(query: &str, key: &str) -> Option<String> {
         }
     }
     None
-}
-
-#[allow(dead_code)]
-fn is_private(host: &str) -> bool {
-    is_private_host_pub(host)
 }

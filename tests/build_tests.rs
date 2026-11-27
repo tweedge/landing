@@ -28,7 +28,7 @@ fn build_to(out: &Path) -> build::BuildResult {
     build::build(build::BuildOptions {
         config_path: example_config(),
         out_dir: Some(out.to_path_buf()),
-        single_file: true,
+        single_file: Some(true),
         quiet: true,
         refresh_favicons: false,
         root: root(),
@@ -139,9 +139,9 @@ fn server_json_lists_probe_targets() {
     let out = temp_out("server");
     build_to(&out);
     let server: serde_json::Value = serde_json::from_str(&read(&out.join("server.json"))).unwrap();
-    let lan = server["lan"].as_array().unwrap();
+    let lan = server["probe"]["lan"].as_array().unwrap();
     assert!(lan.iter().any(|e| e["url"] == "http://ha.lan/"));
-    let internet = server["internet"].as_array().unwrap();
+    let internet = server["probe"]["internet"].as_array().unwrap();
     assert!(internet.iter().any(|u| u == "https://example.org/"));
     let _ = std::fs::remove_dir_all(&out);
 }
@@ -220,6 +220,27 @@ fn icon_tables_are_consistent() {
         missing.is_empty(),
         "icons missing from src/js/icons.js: {missing:?}"
     );
+
+    // Bodies must match too, or server-rendered HTML and client-rendered cards
+    // can show different glyphs for the same icon.
+    for (name, body) in landing::icons::ICONS {
+        for key in [format!("{name}:"), format!("'{name}':")] {
+            if let Some(start) = js.find(&key) {
+                let rest = &js[start + key.len()..];
+                if let Some(open) = rest.find('\'') {
+                    let after = &rest[open + 1..];
+                    if let Some(close) = after.find('\'') {
+                        assert_eq!(
+                            &after[..close],
+                            *body,
+                            "icon body drift for {name}: Rust and JS differ"
+                        );
+                    }
+                }
+                break;
+            }
+        }
+    }
 }
 
 #[test]

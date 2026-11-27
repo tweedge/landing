@@ -108,7 +108,7 @@ pub fn run_build(ctx: &Context, refresh_favicons: bool) -> Result<()> {
     build(BuildOptions {
         config_path: ctx.config.clone(),
         out_dir: Some(ctx.dist.clone()),
-        single_file: true,
+        single_file: None,
         quiet: false,
         refresh_favicons,
         root: ctx.root.clone(),
@@ -269,10 +269,19 @@ pub fn health(server: &Value, retries: u32) -> bool {
     for _ in 0..retries {
         if let Some(client) = &client {
             if let Ok(response) = client.get(&url).send() {
-                if response.status().as_u16() == 200 {
-                    let body = response.text().unwrap_or_default();
-                    println!("Healthcheck OK: {url} -> {}", body.trim());
-                    return true;
+                let code = response.status().as_u16();
+                let body = response.text().unwrap_or_default();
+                // Require a 2xx and a body that reports "ok", so a stale or
+                // half-broken install cannot pass the check.
+                if (200..300).contains(&code) {
+                    let status_ok = serde_json::from_str::<Value>(&body)
+                        .ok()
+                        .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(|s| s == "ok"))
+                        .unwrap_or(false);
+                    if status_ok {
+                        println!("Healthcheck OK: {url} -> {}", body.trim());
+                        return true;
+                    }
                 }
             }
         }
@@ -289,6 +298,26 @@ fn read_server(ctx: &Context) -> Value {
         .unwrap_or(Value::Null)
 }
 
+/// Ensure the service is enabled and (re)started so it reloads server.json.
+/// Unlike `start`, this always cycles an already-running service.
+fn restart(ctx: &Context) -> Result<()> {
+    if have_systemd() {
+        write_unit(ctx)?;
+        let _ = Command::new("systemctl")
+            .args(["--user", "enable", &ctx.paths.unit_name])
+            .status();
+        let status = Command::new("systemctl")
+            .args(["--user", "restart", &ctx.paths.unit_name])
+            .status()?;
+        if !status.success() {
+            bail!("failed to restart {}", ctx.paths.unit_name);
+        }
+        return Ok(());
+    }
+    stop(ctx)?;
+    start(ctx)
+}
+
 pub fn cmd_build(ctx: &Context, refresh_favicons: bool) -> Result<i32> {
     run_build(ctx, refresh_favicons)?;
     Ok(0)
@@ -297,7 +326,7 @@ pub fn cmd_build(ctx: &Context, refresh_favicons: bool) -> Result<i32> {
 pub fn cmd_install(ctx: &Context, refresh_favicons: bool) -> Result<i32> {
     run_build(ctx, refresh_favicons)?;
     let server = install_files(ctx)?;
-    start(ctx)?;
+    restart(ctx)?;
     if !health(&server, 20) {
         return Ok(1);
     }
@@ -325,15 +354,7 @@ pub fn cmd_stop(ctx: &Context) -> Result<i32> {
 pub fn cmd_restart(ctx: &Context, refresh_favicons: bool) -> Result<i32> {
     run_build(ctx, refresh_favicons)?;
     let server = install_files(ctx)?;
-    if have_systemd() {
-        write_unit(ctx)?;
-        let _ = Command::new("systemctl")
-            .args(["--user", "restart", &ctx.paths.unit_name])
-            .status();
-    } else {
-        stop(ctx)?;
-        start(ctx)?;
-    }
+    restart(ctx)?;
     Ok(if health(&server, 20) { 0 } else { 1 })
 }
 

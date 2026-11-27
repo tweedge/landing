@@ -58,7 +58,7 @@ jobs:
           ls -la dist/
           args=()
           case "$TAG" in
-            *-beta|*-rc|*-alpha) args+=(--prerelease) ;;
+            *-alpha*|*-beta*|*-rc*) args+=(--prerelease) ;;
           esac
           gh release create "$TAG" dist/*.tar.gz dist/SHA256SUMS \
             -R "$REPO" \

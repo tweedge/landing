@@ -21,7 +21,7 @@ use crate::theme;
 pub struct BuildOptions {
     pub config_path: PathBuf,
     pub out_dir: Option<PathBuf>,
-    pub single_file: bool,
+    pub single_file: Option<bool>,
     pub quiet: bool,
     pub refresh_favicons: bool,
     pub root: PathBuf,
@@ -375,6 +375,21 @@ fn runtime_config(config: &Config) -> Value {
     })
 }
 
+/// Join a config-provided absolute path ("/foo/") onto the build base path, so
+/// PWA start_url/scope respect both config and a sub-path deployment.
+fn under_base(base_path: &str, value: &str, default: &str) -> String {
+    let value = if value.trim().is_empty() {
+        default
+    } else {
+        value.trim()
+    };
+    if value.starts_with('/') {
+        format!("{base_path}{}", value.trim_start_matches('/'))
+    } else {
+        value.to_string()
+    }
+}
+
 fn write_manifest(config: &Config, site_dir: &Path, pwa_icons: &[Value]) -> Result<()> {
     if !config.pwa.enabled {
         return Ok(());
@@ -412,8 +427,14 @@ fn write_manifest(config: &Config, site_dir: &Path, pwa_icons: &[Value]) -> Resu
         }),
     );
     manifest.insert("description".into(), json!(config.pwa.description));
-    manifest.insert("start_url".into(), json!(base_path));
-    manifest.insert("scope".into(), json!(base_path));
+    manifest.insert(
+        "start_url".into(),
+        json!(under_base(base_path, &config.pwa.start_url, base_path)),
+    );
+    manifest.insert(
+        "scope".into(),
+        json!(under_base(base_path, &config.pwa.scope, base_path)),
+    );
     manifest.insert("display".into(), json!(config.pwa.display));
     manifest.insert("theme_color".into(), json!(config.pwa.theme_color));
     manifest.insert(
@@ -634,7 +655,7 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
 
     let mut warnings = warnings;
     let favicon_map = favicon::resolve_favicons(&cfg, &root, opts.refresh_favicons, &mut warnings)?;
-    let single_file = opts.single_file;
+    let single_file = opts.single_file.unwrap_or(cfg.build.single_file);
     let assets = resolve_assets(&mut cfg, &root, &site_dir, single_file, &favicon_map)?;
 
     let theme_css = theme::theme_css(&cfg, assets.background_url.as_deref());
@@ -714,17 +735,8 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
         "host": cfg.server.host,
         "port": cfg.server.port,
         "health_path": cfg.server.health_path,
-        "probe": cfg.server.probe,
+        "server_probe": cfg.server.probe,
         "search": { "suggest_url": cfg.search.suggest_url, "suggest_limit": cfg.search.suggest_limit },
-        "probe_internet": cfg.probe.internet.urls,
-        "probe_timeout_ms": cfg.probe.lan.timeout_ms,
-        "accept_untrusted_cert": cfg.probe.lan.accept_untrusted_cert,
-        "pin_certificates": cfg.probe.lan.pin_certificates,
-        "pins": cfg.probe.lan.pins,
-        "captive_portal": cfg.probe.captive_portal,
-        "internet": cfg.probe.internet.urls,
-        "lan": lan_entries,
-        "timeout_ms": cfg.probe.lan.timeout_ms,
         "probe": {
             "internet": cfg.probe.internet.urls,
             "lan": lan_entries,
@@ -741,6 +753,7 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
     )?;
 
     let groups = group_views(&cfg);
+    let noindex = cfg.site.noindex || cfg.build.noindex;
     let site_csp = csp::csp_meta(&cfg, None, None, &config_json);
     let index_ctx = json!({
         "site": cfg.site,
@@ -758,7 +771,7 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
         "app_js_url": app_js_url,
         "manifest_url": assets.manifest_url,
         "favicon_url": assets.favicon_url,
-        "noindex": cfg.site.noindex,
+        "noindex": noindex,
         "config_hash": build_hash,
         "has_pwa": cfg.pwa.enabled,
     });
@@ -774,7 +787,7 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
         "base_path": cfg.build.base_path,
     }))?;
     fs::write(site_dir.join("404.html"), not_found)?;
-    let robots = if cfg.site.noindex {
+    let robots = if noindex {
         "User-agent: *\nDisallow: /\n"
     } else {
         "User-agent: *\nAllow: /\n"
@@ -800,7 +813,7 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult> {
             "app_js_url": "",
             "manifest_url": "",
             "favicon_url": assets.favicon_url,
-            "noindex": cfg.site.noindex,
+            "noindex": noindex,
             "config_hash": build_hash,
             "has_pwa": cfg.pwa.enabled,
         });
@@ -883,7 +896,7 @@ pub fn check_idempotent(config_path: &Path, root: &Path) -> Result<bool> {
     build(BuildOptions {
         config_path: config_path.to_path_buf(),
         out_dir: Some(tmp1.clone()),
-        single_file: true,
+        single_file: Some(true),
         quiet: true,
         refresh_favicons: false,
         root: root.to_path_buf(),
@@ -891,7 +904,7 @@ pub fn check_idempotent(config_path: &Path, root: &Path) -> Result<bool> {
     build(BuildOptions {
         config_path: config_path.to_path_buf(),
         out_dir: Some(tmp2.clone()),
-        single_file: true,
+        single_file: Some(true),
         quiet: true,
         refresh_favicons: false,
         root: root.to_path_buf(),

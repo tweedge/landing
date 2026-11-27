@@ -39,8 +39,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
+      - name: Init config
+        run: cargo run --locked -- init
+
       - name: Build
-        run: cargo build --locked
+        run: cargo run --locked -- build
 
       - name: Idempotency
         run: cargo run --locked -- check-idempotent
@@ -54,19 +57,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - name: Init config
+        run: cargo run --locked -- init
+
       - name: Build the site
         run: cargo run --locked -- build
 
-      - name: Install Chromium and websocket-client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
-          python3 -m pip install --user websocket-client
+      - name: Install websocket-client
+        run: python3 -m pip install --user websocket-client
 
       - name: Run smoke tests
         run: |
-          # The harness honors CHROME_BIN; fall back to whichever name is installed.
-          export CHROME_BIN="$(command -v chromium || command -v chromium-browser)"
+          # ubuntu-latest ships google-chrome; fall back to chromium if present.
+          export CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "No Chrome/Chromium found on the runner" >&2
+            exit 1
+          fi
           python3 tests/smoke_test.py
 
   install-script:

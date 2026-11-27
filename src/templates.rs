@@ -1,7 +1,5 @@
 //! Template rendering via minijinja, using the embedded Jinja2 templates.
 
-use std::collections::BTreeMap;
-
 use anyhow::Result;
 use minijinja::value::Value as MjValue;
 use minijinja::{syntax::SyntaxConfig, Environment, Output, State};
@@ -99,11 +97,4 @@ pub fn render_404(ctx: Value) -> Result<String> {
     let env = env();
     let tmpl = env.get_template("404.html.j2")?;
     Ok(tmpl.render(to_mj(&ctx))?)
-}
-
-/// Helpers exposed to templates are not needed because the build precomputes
-/// `icon_html`; this re-export keeps the module cohesive for future use.
-#[allow(dead_code)]
-pub fn empty_context() -> BTreeMap<String, Value> {
-    BTreeMap::new()
 }
