@@ -22,7 +22,6 @@ site:
   noindex: true
 
 theme:
-  preset: catppuccin-warm
   mode: dark
   accent: "#f0a06a"
   radius: 18
@@ -67,7 +66,6 @@ layout:
 
 defaults:
   target: _blank
-  icon_style: flat
   availability: always
   prefer: auto
   icon: link
@@ -111,7 +109,6 @@ probe:
       - url: http://www.msftconnecttest.com/connecttest.txt
         expect_body: Microsoft Connect Test
   cache_ttl_ms: 30000
-  recheck_on: [online, offline, visibilitychange, focus]
   homepage: true
 
 redirect:
@@ -120,7 +117,6 @@ redirect:
   max_delay_ms: 5000
   allow_mode_override: true
   allow_delay_override: true
-  show_target_host: true
   cancel: true
   generate_static_pages: true
 
@@ -161,10 +157,8 @@ build:
   base_path: /
   output_dir: dist
   single_file: true
-  minify: false
   noindex: true
   allow_remote_assets: false
-  source_date_epoch: 0
 
 groups:
   - id: home

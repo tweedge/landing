@@ -623,7 +623,6 @@ site:
   noindex: true
 
 theme:
-  preset: slate
   mode: dark
   accent: "#38bdf8"
   radius: 16
@@ -660,7 +659,6 @@ layout:
 
 defaults:
   target: _blank
-  icon_style: flat
   availability: always
   prefer: auto
 
@@ -694,14 +692,12 @@ probe:
     max_links: 5
     timeout_ms: 2500
     random_query: true
-    image_fallback: true          # passive <img> fallback for the single-file export
     # Optional, user-provided, any private range; no default CIDR:
     ip_fallback: null
     # Optional, only if the user already has wildcard DNS:
     random_subdomain: false
     domain: null           # existing LAN domain; required only for random_subdomain
   cache_ttl_ms: 30000
-  recheck_on: [online, offline, visibilitychange, focus]
 
 redirect:
   enabled: true
@@ -709,7 +705,6 @@ redirect:
   max_delay_ms: 5000
   allow_mode_override: true
   allow_delay_override: true
-  show_target_host: true
   cancel: true
   generate_static_pages: true
 
@@ -765,10 +760,8 @@ build:
   output_dir: dist
   single_file: true
   inline_icons: true
-  minify: true
   allow_remote_assets: false
   remote_asset_allowlist: []
-  source_date_epoch: 0
 
 groups:
   - id: home
@@ -806,7 +799,7 @@ groups:
 - The build MAY support local `!include`/merge for large configurations. Remote includes MUST be rejected; configuration must be offline and reviewable.
 - `site.lang` sets `<html lang>`; default `en`.
 - `site.noindex` controls `robots.txt` and `<meta name="robots">`; default `true`.
-- `theme.preset` is a named token set; `theme.colors` overrides individual tokens. Custom colors are validated and contrast-checked.
+- `theme.colors` defines the light/dark token sets; custom colors are validated and contrast-checked.
 - `theme.background.image` may be a local path or an allowlisted remote URL; remote images are downloaded at build.
 - `layout.columns` sets the balanced column count for the group flow; `layout.max_width` caps the page width; `layout.groups_max_width` caps and centers the card area so it stays readable on wide screens.
 - `probe.internet.urls` defaults to public, CORS-free sites (`example.org`, `example.com`, `gstatic.com/generate_204`). The default `mode: no-cors` requires no CORS, token, or deployment; opaque success means "reachable, unverified." A CORS-enabled URL may be configured for a stronger check. `probe.internet.image` optionally names a public image URL for a no-CORS decode check (a captive portal returning HTML will fail to decode).
@@ -827,7 +820,6 @@ groups:
 - `server.host` defaults to `127.0.0.1`; `server.port` defaults to `8080`; `server.health_path` defaults to `/healthz`.
 - `install.mode` is `user` (default) or `system` (optional, requires root). `install.systemd` is `auto`, `true`, or `false`. `install.data_dir` and `install.config_dir` override the XDG defaults. `install.service_name` defaults to `landing`.
 - `build.base_url` defaults to `http://localhost:8080/` and is used for canonical/OG/PWA metadata. `build.base_path` supports subdirectory serving; all generated URLs and the service worker scope respect it.
-- `build.source_date_epoch` is used for any archive timestamps; `0` means omit timestamps entirely.
 - `groups[].links[]` is the canonical link location. A top-level `links` list with a `group` field MAY be supported later; the first implementation uses groups.
 - `search.focus` (default `true`) focuses the search bar on load.
 - `search.suggestions` (default `true`) enables the suggestion list. `search.suggest_url` is a provider suggestion template containing `{query}`, enabled by default; set it to `""` to disable provider suggestions. The build MUST reject a non-empty value without `{query}`. `search.suggest_limit` caps provider suggestions.
@@ -964,7 +956,6 @@ lan      = first successful probe among:
 ### 7.8 Theme and preferences
 
 - The theme is set by `theme.mode` (default `dark`). There is no in-page theme toggle.
-- Group collapse state persists in `localStorage` keyed by group ID and build version.
 - The "Network" menu shows the detected state, last check time, and manual override.
 - A "Recheck" button is available in the menu and in the offline/LAN-error banners.
 - There is no automatic periodic recheck. A page left open keeps its last result until a network event, focus/visibility change, redirect, or manual recheck occurs. This avoids passive traffic to the Internet probe and LAN services.
@@ -1000,7 +991,7 @@ lan      = first successful probe among:
 
 - No analytics, telemetry, or tracking pixels.
 - The default Internet probe contacts a public site (`example.org`/`example.com`/`gstatic.com`), not a first-party endpoint. This is configurable; document it. LAN probes contact only the configured LAN URLs.
-- No cookies. `localStorage` stores theme, override, and collapsed groups; `sessionStorage` stores the short-lived probe result.
+- No cookies. `localStorage` stores the theme and override choices; `sessionStorage` stores the short-lived probe result.
 - Probe requests use `credentials: "omit"` and a random query parameter, not an identifying token or nonce. LAN probes may appear in the target service logs; use a lightweight existing path via `probe_url` if that matters.
 - No dedicated probe endpoint exists to log anything.
 - The redirect uses `no-referrer` so the target does not learn the `go` slug or landing URL.

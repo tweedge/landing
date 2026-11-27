@@ -59,7 +59,6 @@ pub struct Site {
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Theme {
-    pub preset: String,
     pub mode: String,
     pub accent: String,
     pub radius: i64,
@@ -113,7 +112,6 @@ pub struct Layout {
 #[serde(default)]
 pub struct Defaults {
     pub target: String,
-    pub icon_style: String,
     pub availability: String,
     pub prefer: String,
     pub icon: String,
@@ -140,7 +138,6 @@ pub struct Probe {
     pub lan: Lan,
     pub captive_portal: CaptivePortal,
     pub cache_ttl_ms: i64,
-    pub recheck_on: Vec<String>,
     pub homepage: bool,
 }
 
@@ -159,8 +156,6 @@ pub struct Lan {
     pub max_links: i64,
     pub timeout_ms: i64,
     pub random_query: bool,
-    pub target_address_space: String,
-    pub image_fallback: bool,
     pub ip_fallback: Option<String>,
     pub random_subdomain: bool,
     pub domain: Option<String>,
@@ -192,7 +187,6 @@ pub struct Redirect {
     pub max_delay_ms: i64,
     pub allow_mode_override: bool,
     pub allow_delay_override: bool,
-    pub show_target_host: bool,
     pub cancel: bool,
     pub generate_static_pages: bool,
 }
@@ -262,10 +256,8 @@ pub struct Build {
     pub base_path: String,
     pub output_dir: String,
     pub single_file: bool,
-    pub minify: bool,
     pub noindex: bool,
     pub allow_remote_assets: bool,
-    pub source_date_epoch: i64,
 }
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
@@ -275,7 +267,6 @@ pub struct Group {
     pub icon: String,
     pub color: Option<String>,
     pub order: i64,
-    pub collapsed: bool,
     pub show_when: Vec<String>,
     pub hide_when: Vec<String>,
     pub icon_url: Option<String>,
@@ -354,7 +345,6 @@ struct RawSite {
 
 #[derive(Debug, Deserialize, Default)]
 struct RawTheme {
-    preset: Option<String>,
     mode: Option<String>,
     accent: Option<String>,
     radius: Option<i64>,
@@ -402,7 +392,6 @@ struct RawProbe {
     lan: Option<RawLan>,
     captive_portal: Option<RawCaptive>,
     cache_ttl_ms: Option<i64>,
-    recheck_on: Option<Vec<String>>,
     homepage: Option<bool>,
 }
 
@@ -421,8 +410,6 @@ struct RawLan {
     max_links: Option<i64>,
     timeout_ms: Option<i64>,
     random_query: Option<bool>,
-    target_address_space: Option<String>,
-    image_fallback: Option<bool>,
     ip_fallback: Option<Option<String>>,
     random_subdomain: Option<bool>,
     domain: Option<Option<String>>,
@@ -469,10 +456,8 @@ struct RawBuild {
     base_path: Option<String>,
     output_dir: Option<String>,
     single_file: Option<bool>,
-    minify: Option<bool>,
     noindex: Option<bool>,
     allow_remote_assets: Option<bool>,
-    source_date_epoch: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -482,7 +467,6 @@ struct RawGroup {
     icon: Option<String>,
     color: Option<String>,
     order: Option<i64>,
-    collapsed: Option<bool>,
     show_when: Option<Vec<String>>,
     hide_when: Option<Vec<String>>,
     links: Option<Vec<RawLink>>,
@@ -524,7 +508,6 @@ impl Default for Defaults {
     fn default() -> Self {
         Defaults {
             target: "_blank".into(),
-            icon_style: "flat".into(),
             availability: "always".into(),
             prefer: "auto".into(),
             icon: "link".into(),
@@ -555,7 +538,6 @@ impl Default for Redirect {
             max_delay_ms: 5000,
             allow_mode_override: true,
             allow_delay_override: true,
-            show_target_host: true,
             cancel: true,
             generate_static_pages: true,
         }
@@ -663,7 +645,6 @@ fn normalize(raw: RawConfig) -> Result<Config> {
         .filter(|c| !c.is_empty())
         .unwrap_or_else(|| colors.dark.bg.clone());
     let theme = Theme {
-        preset: theme_raw.preset.unwrap_or_else(|| "slate".into()),
         mode: theme_raw.mode.unwrap_or_else(|| "dark".into()),
         accent: theme_raw
             .accent
@@ -706,10 +687,6 @@ fn normalize(raw: RawConfig) -> Result<Config> {
             max_links: lan_raw.max_links.unwrap_or(20),
             timeout_ms: lan_raw.timeout_ms.unwrap_or(2500),
             random_query: lan_raw.random_query.unwrap_or(true),
-            target_address_space: lan_raw
-                .target_address_space
-                .unwrap_or_else(|| "local".into()),
-            image_fallback: lan_raw.image_fallback.unwrap_or(true),
             ip_fallback: lan_raw.ip_fallback.unwrap_or(None),
             random_subdomain: lan_raw.random_subdomain.unwrap_or(false),
             domain: lan_raw.domain.unwrap_or(None),
@@ -722,14 +699,6 @@ fn normalize(raw: RawConfig) -> Result<Config> {
             urls: captive_raw.urls.unwrap_or_else(default_captive_checks),
         },
         cache_ttl_ms: probe_raw.cache_ttl_ms.unwrap_or(30000),
-        recheck_on: probe_raw.recheck_on.unwrap_or_else(|| {
-            vec![
-                "online".into(),
-                "offline".into(),
-                "visibilitychange".into(),
-                "focus".into(),
-            ]
-        }),
         homepage: probe_raw.homepage.unwrap_or(false),
     };
 
@@ -793,10 +762,8 @@ fn normalize(raw: RawConfig) -> Result<Config> {
         base_path,
         output_dir: build_raw.output_dir.unwrap_or_else(|| "dist".into()),
         single_file: build_raw.single_file.unwrap_or(true),
-        minify: build_raw.minify.unwrap_or(false),
         noindex: build_raw.noindex.unwrap_or(false),
         allow_remote_assets: build_raw.allow_remote_assets.unwrap_or(false),
-        source_date_epoch: build_raw.source_date_epoch.unwrap_or(0),
     };
 
     if raw.groups.is_empty() {
@@ -857,7 +824,6 @@ fn normalize(raw: RawConfig) -> Result<Config> {
             icon: group_raw.icon.unwrap_or_else(|| "link".into()),
             color: group_raw.color,
             order: group_raw.order.unwrap_or(index as i64 * 10),
-            collapsed: group_raw.collapsed.unwrap_or(false),
             show_when: group_raw.show_when.unwrap_or_default(),
             hide_when: group_raw.hide_when.unwrap_or_default(),
             icon_url: None,
