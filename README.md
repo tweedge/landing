@@ -1,41 +1,64 @@
 # landing
 
-A local-first start page for your homelab. Clone it, edit it, run one script, and it builds, installs, and serves itself on `localhost`.
+A local-first start page for your homelab. A single Rust binary builds, installs, and serves itself on `localhost`.
 
 Landing lists grouped links, detects Internet and home-LAN reachability in the browser, uses LAN URLs on the LAN, public URLs away, and LAN URLs when offline at home. It also supports `/go/<service>/` redirects for favorites-bar bookmarks, and it fetches each service's real favicon at build time.
 
-There is no cloud build, no CDN, no browser extension, and no userscript. The build and install happen on your machine.
+There is no cloud build, no CDN, no browser extension, and no userscript. The build and install happen on your machine. The server embeds the frontend (templates, CSS, JS) and the example config, so a release binary is self-contained.
+
+![Landing, dark theme](docs/screenshot-dark.png)
+
+<details><summary>Light theme</summary>
+
+![Landing, light theme](docs/screenshot-light.png)
+
+</details>
+
+## Install
+
+No Rust toolchain needed for the prebuilt binary:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tweedge/landing/main/scripts/install.sh | sh
+```
+
+The script detects your Linux arch (amd64, arm64, arm, 386), verifies the
+release `SHA256SUMS`, and installs to `/usr/local/bin` (or `~/.local/bin`). Pin a
+version with `VERSION=v1.0.0`, choose a directory with `INSTALL_DIR=~/bin`.
 
 ## Quick start
 
 ```bash
-git clone <your-fork> landing
-cd landing
-./landing init          # writes config/landing.yml from the example
+landing init            # writes config/landing.yml from the embedded example
 $EDITOR config/landing.yml
-./landing
+landing                 # build, install, start, and healthcheck
 ```
 
-`./landing` builds the site, installs it under XDG paths, installs and starts a systemd user service when available, and runs a healthcheck. Open <http://localhost:8080/>.
+`landing` builds the site, installs it under XDG paths, installs and starts a
+systemd user service when available, and runs a healthcheck. Open
+<http://localhost:8080/>.
 
-`config/landing.yml` is gitignored, so your real hosts and URLs are never committed. The tracked [`config/landing.example.yml`](config/landing.example.yml) is the template and the config the test suite builds against.
+To work from source instead: `cargo run -- init` then `cargo run --`.
+
+`config/landing.yml` is gitignored, so your real hosts and URLs are never
+committed. The tracked [`config/landing.example.yml`](config/landing.example.yml)
+is the template, and the config the test suite builds against.
 
 ## Entrypoint
 
 | Command | What it does |
 | --- | --- |
-| `./landing` | Build, install, start, and healthcheck (same as `install`). |
-| `./landing build` | Build `dist/` from `config/landing.yml`. |
-| `./landing install` | Build, install to XDG paths, install/enable the systemd user unit, start, and healthcheck. |
-| `./landing start` | Start the installed service. Use `--foreground` without systemd. |
-| `./landing stop` | Stop the service. |
-| `./landing restart` | Restart after a rebuild. |
-| `./landing status` | Show service state, bind address, installed paths, and last healthcheck. |
-| `./landing health` | Request the health path; non-zero exit on failure. |
-| `./landing logs` | Show recent service logs. |
-| `./landing uninstall` | Stop/disable and remove installed files; keep config unless `--purge`. |
-
-Re-running `./landing` after editing YAML is safe and idempotent.
+| `landing` | Build, install, start, and healthcheck (same as `install`). |
+| `landing build` | Build `dist/` from `config/landing.yml`. |
+| `landing install` | Build, install to XDG paths, install/enable the systemd user unit, start, and healthcheck. |
+| `landing start` | Start the installed service (systemd or a detached process). |
+| `landing stop` | Stop the service. |
+| `landing restart` | Restart after a rebuild. |
+| `landing status` | Show service state, bind address, installed paths, and last healthcheck. |
+| `landing health` | Request the health path; non-zero exit on failure. |
+| `landing logs` | Show recent service logs. |
+| `landing uninstall` | Stop/disable and remove installed files; keep config unless `--purge`. |
+| `landing init` | Write a starter `config/landing.yml` from the embedded example (`--force` overwrites). |
 
 ## Install layout
 
@@ -57,18 +80,20 @@ By default, each link's icon is the service's real favicon, fetched and cached a
 links:
   - id: ha
     name: Home Assistant
-    icon: auto          # default: fetch the real favicon
+    icon: auto          # opt in: fetch the real favicon at build time
     url: https://ha.example.com/
-    lan_url: http://ha.home.arpa/
+    lan_url: http://ha.lan/
 ```
+
+Favicon fetching is opt-in per link: only services with `icon: auto` are fetched. An explicit `icon` (a built-in name like `play` or `server`, a local file path, or a URL) is a deliberate choice and always wins, so the example config builds fully offline. The bundled `icons.rs` set covers common homelab services.
 
 - The build parses `<link rel="icon">`, `shortcut icon`, `apple-touch-icon`, and `mask-icon`, then falls back to `/favicon.ico`.
 - It tries `favicon_url`, then `url`, then `lan_url`, so LAN-only services can still get icons when `allow_private_hosts` is enabled.
 - It accepts self-signed certificates, since LAN services often use them.
 - If a configured URL only answers on the other scheme (http↔https), the build still fetches the icon but prints a warning telling you to update the URL in your config.
 - Icons are cached in `assets/favicons/` (gitignored) so repeated builds are fast and deterministic. A fresh clone fetches them on first build.
-- `./landing build --refresh-favicons` re-fetches all icons; `favicon_refresh: true` re-fetches one link.
-- Icon ladder: a real favicon fetched at build wins; otherwise a custom `icon` (path or built-in name); otherwise `defaults.icon` (default `link`). Never a letter.
+- `landing build --refresh-favicons` re-fetches all icons; `favicon_refresh: true` re-fetches one link.
+- Icon ladder: an explicit `icon` (built-in name, path, or URL) wins; only `icon: auto` triggers a build-time favicon fetch; otherwise `defaults.icon` (default `link`). Never a letter.
 - Set `icon_background` on a link to give its icon a custom tile color (for example a warm light tile behind a dark mark). There is no automatic detection.
 - Group and category icons are always explicit; they are never autoloaded.
 - `/go/` bookmarks and the redirect interstitial use the same resolved icon as the card.
@@ -251,9 +276,9 @@ groups:
 ## Testing
 
 ```bash
-python3 -m unittest discover -s tests -v
-python3 scripts/build.py --check-idempotent
-python3 scripts/smoke_test.py        # requires Chromium
+cargo test
+cargo run -- check-idempotent
+python3 tests/smoke_test.py        # requires Chromium
 ```
 
 ## Documentation

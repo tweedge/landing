@@ -3,7 +3,7 @@
 Status: **Draft (v0.2, local-first pivot)**  
 Version: 0.2  
 Date: 2026-11-06  
-Implementation: `scripts/build.py`, `src/`, `config/landing.yml`, `tests/`; build and install with `./landing` (the entrypoint).  
+Implementation: Rust binary (`src/`), embedded frontend (`src/js`, `src/styles`, `src/templates`), `config/landing.example.yml`, `tests/`; build and install with `landing` (the binary).  
 
 > **Direction change (v0.2).** Landing is no longer a cloud-built, cloud-installed, or extension-based product. It is a **local-first** application: the user clones the repository, edits it, and runs a single entrypoint script that builds the site, installs it on the local machine following Linux conventions, starts it on `localhost`, and verifies it with a healthcheck. There is no CDN, no hosted build, no browser extension, and no userscript. The recommended adoption path is **fork → clone → edit → ship locally**.
 

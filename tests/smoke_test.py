@@ -2,8 +2,8 @@
 """Smoke-test the built Landing site and single file in Chromium.
 
 Usage:
-    python3 scripts/build.py
-    python3 scripts/smoke_test.py
+    cargo run -- build
+    python3 tests/smoke_test.py
 
 Requires Chromium and websocket-client.
 """
@@ -33,9 +33,13 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-CHROME = shutil.which("chromium") or shutil.which("chromium-browser")
+CHROME = (
+    os.environ.get("CHROME_BIN")
+    or shutil.which("chromium")
+    or shutil.which("chromium-browser")
+)
 if not CHROME:
-    raise SystemExit("Chromium not found on PATH")
+    raise SystemExit("Chromium not found on PATH (set CHROME_BIN to override)")
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -201,7 +205,7 @@ def main() -> int:
     args = parser.parse_args()
     site = args.dist / "site"
     if not (site / "index.html").exists():
-        raise SystemExit("Build output missing; run python3 scripts/build.py first")
+        raise SystemExit("Build output missing; run cargo run -- build first")
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=str(site)))
     port = server.server_address[1]
@@ -274,7 +278,7 @@ def main() -> int:
             check("redirect: boot or failure visible", browser.cdp.evaluate("document.getElementById('redirect-boot').getClientRects().length > 0 || !document.getElementById('redirect-fail').hidden", await_promise=False))
 
         # Unavailable target explains why and links back to the landing root.
-        with Browser(base + "/go/jaeger/?mode=wan") as browser:
+        with Browser(base + "/go/pihole/?mode=wan") as browser:
             browser.wait_for("!document.getElementById('redirect-fail').hidden", timeout=15)
             check("redirect: failure explains", "Home LAN only" in browser.cdp.evaluate("document.getElementById('redirect-fail-reason').textContent", await_promise=False))
             check("redirect: failure links home", browser.cdp.evaluate("document.querySelector('#redirect-fail a').getAttribute('href')", await_promise=False) == "/")

@@ -4,7 +4,7 @@ Guidance for agents and contributors working on Landing. Read this before changi
 
 ## What this project is
 
-Landing is a local-first homelab start page. The repository is the product: a user forks/clones it, edits `config/landing.yml`, and runs `./landing` to build, install, and serve it on `localhost`. There is no cloud build, CDN, extension, or userscript.
+Landing is a local-first homelab start page implemented as a single Rust binary. A user installs it (prebuilt release or `cargo build`), runs `landing init` to write `config/landing.yml`, edits it, and runs `landing` to build, install, and serve it on `localhost`. There is no cloud build, CDN, extension, or userscript.
 
 Authoritative behavior lives in [`SPEC.md`](SPEC.md). If code and spec disagree, treat the spec as intent and either fix the code or update the spec deliberately — do not leave them inconsistent.
 
@@ -12,28 +12,38 @@ Authoritative behavior lives in [`SPEC.md`](SPEC.md). If code and spec disagree,
 
 | Path | Purpose |
 | --- | --- |
-| `landing` | Entrypoint: `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, `uninstall`. |
-| `scripts/build.py` | Build engine: load/validate YAML, resolve assets and favicons, render HTML/CSS/JS, service worker, redirect pages, CSP, checksums. |
-| `scripts/serve.py` | Local static server: loopback binding, security headers, `/healthz`, `/api/network` server-side probe, `/api/suggest` suggestion proxy. |
-| `scripts/smoke_test.py` | Chromium smoke tests for the built site, single-file export, and redirect pages. |
+| `src/main.rs` | CLI entrypoint (clap): `build`, `install`, `start`, `stop`, `restart`, `status`, `health`, `logs`, `uninstall`, `init`, `check-idempotent`, `serve`. |
+| `src/lib.rs` | Library root re-exporting the modules below; embeds the example config as `TEMPLATE_CONFIG`. |
+| `src/config.rs` | Typed config model, normalization (serde defaults), and validation. |
+| `src/build.rs` | Build engine: config -> assets -> rendered site, single-file export, redirect pages, manifest, service worker, CSP headers, checksums, idempotency check. |
+| `src/serve.rs` | Local static server (tiny_http): loopback binding, security headers, `/healthz`, `/api/location`, `/api/connectivity`, `/api/network`, `/api/suggest` server-side proxies. |
+| `src/lifecycle.rs` | XDG paths, install, systemd unit, foreground process fallback, healthcheck, status, logs, uninstall, `init`. |
+| `src/favicon.rs` | Build-time favicon fetch (reqwest, self-signed accepted), HTML icon discovery, image normalization, cache. |
+| `src/theme.rs` | Theme CSS generation and color helpers. |
+| `src/csp.rs` | Content-Security-Policy construction and hashing. |
+| `src/pwa.rs` | Generated cat-mark PWA icons. |
+| `src/templates.rs` | minijinja rendering (Jinja2-compatible escaping) of embedded templates. |
+| `src/icons.rs` | Built-in SVG icon set. |
 | `src/js/core.js` | Pure helpers: slug normalization, state classification, link resolution, redirect parsing. |
 | `src/js/site.js` | Landing page runtime: probes, link rewriting, search, dialogs, theme, redirect controller. |
 | `src/js/redirect.js` | Minimal `/go/<slug>/` page runtime. Must not depend on `site.js`. Checks only its target. |
-| `CONNECTION.md` | Connection matrix: Home/Away × Online/Offline per service state. |
-| `src/js/icons.js` | Built-in icon set. |
+| `src/js/icons.js` | Built-in icon set (rendered client-side). |
 | `src/js/sw.js` | Service worker template (placeholders filled at build). |
 | `src/styles/main.css` | All styles, including the minimal redirect page. |
-| `src/templates/` | Jinja templates: `index.html.j2`, `redirect.html.j2`, `404.html.j2`. |
-| `config/landing.yml` | Sample configuration. |
-| `tests/test_build.py` | Unit/build tests (`unittest`). |
+| `src/templates/` | Jinja2 templates: `index.html.j2`, `redirect.html.j2`, `404.html.j2`. |
+| `config/landing.example.yml` | Tracked example/template config (also embedded in the binary). |
+| `config/landing.yml` | Your personal config (gitignored; write it with `landing init`). |
+| `tests/build_tests.rs` | Rust integration tests (`cargo test`). |
+| `tests/smoke_test.py` | Chromium smoke tests for the built site, single-file export, and redirect pages. |
+| `scripts/install.sh` | tldr-style release installer (checksum-verified). |
+| `scripts/build-release.sh` | Cross-builds `landing_linux_<arch>.tar.gz` + `SHA256SUMS`. |
 | `assets/favicons/` | Build-time favicon cache (local, gitignored; never commit). |
 
 ## Environment
 
-- Python 3.10+ (3.11+ preferred).
-- Install dependencies: `python3 -m pip install -r requirements.txt` (PyYAML, Jinja2, Pillow).
-- Smoke tests additionally need Chromium on `PATH` and `websocket-client` (`python3 -m pip install websocket-client`).
-- No Node.js is required. Do not add a JS build step.
+- Rust (stable; edition 2021). Build with `cargo build` / `cargo test`.
+- Smoke tests need Chromium on `PATH` and `websocket-client` (`python3 -m pip install websocket-client`).
+- No Node.js is required. Do not add a JS build step; the frontend is embedded with `include_str!`.
 
 ## Development workflow
 
@@ -41,14 +51,15 @@ Authoritative behavior lives in [`SPEC.md`](SPEC.md). If code and spec disagree,
 2. Make the smallest change that satisfies the spec.
 3. Rebuild and run the tests (below).
 4. If you change behavior, update `SPEC.md` and `README.md` in the same change.
-5. Do not commit `dist/` (it is gitignored). Do not commit `__pycache__`.
+5. Do not commit `dist/`, `target/`, or `assets/favicons/` (gitignored).
 
 ### Build
 
 ```bash
-python3 scripts/build.py                 # build dist/site and dist/landing.html
-python3 scripts/build.py --refresh-favicons
-python3 scripts/build.py --check-idempotent
+cargo build                             # compile the binary
+cargo run -- build                      # build dist/site and dist/landing.html
+cargo run -- build --refresh-favicons
+cargo run -- check-idempotent
 ```
 
 Build output:
@@ -60,13 +71,14 @@ Build output:
 ### Install and run locally
 
 ```bash
-./landing            # build + install + start + healthcheck
-./landing status
-./landing health
-./landing logs
-./landing restart
-./landing stop
-./landing uninstall [--purge]
+cargo run --           # build + install + start + healthcheck
+cargo run -- init      # write config/landing.yml from the embedded example
+cargo run -- status
+cargo run -- health
+cargo run -- logs
+cargo run -- restart
+cargo run -- stop
+cargo run -- uninstall [--purge]
 ```
 
 Installed paths (XDG): site in `$XDG_DATA_HOME/landing/site`, config in `$XDG_CONFIG_HOME/landing`, systemd user unit in `$XDG_CONFIG_HOME/systemd/user/landing.service`.
@@ -78,15 +90,15 @@ Run all of these before declaring work done.
 ### 1. Unit and build tests
 
 ```bash
-python3 -m unittest discover -s tests -v
+cargo test
 ```
 
-These must pass offline. Favicon fetching is patched out in tests; do not make tests depend on network access.
+These must pass offline. They build from `config/landing.example.yml`; do not make tests depend on network access.
 
 ### 2. Idempotency
 
 ```bash
-python3 scripts/build.py --check-idempotent
+cargo run -- check-idempotent
 ```
 
 Two builds from the same inputs must produce identical hashes.
@@ -94,8 +106,8 @@ Two builds from the same inputs must produce identical hashes.
 ### 3. Smoke tests (browser)
 
 ```bash
-python3 scripts/build.py
-python3 scripts/smoke_test.py
+cargo run -- build
+python3 tests/smoke_test.py
 ```
 
 Covers: group rendering, card links, the `/go/` drag payload, help UI, the minimal `/go/` page (no landing UI, status text, failure explanation + link home), and the single-file export.
@@ -104,7 +116,7 @@ Covers: group rendering, card links, the `/go/` drag payload, help UI, the minim
 
 Do not rely on "it looks fine" or on a single screenshot. Measure, and compare regions against each other.
 
-**Capture screenshots in both themes and at multiple widths.** Use the smoke harness (`scripts/smoke_test.py` exposes `Browser` and `CDP`) or Chromium headless:
+**Capture screenshots in both themes and at multiple widths.** Use the smoke harness (`tests/smoke_test.py` exposes `Browser` and `CDP`) or Chromium headless:
 
 ```python
 import sys; sys.path.insert(0, "scripts")
@@ -349,9 +361,9 @@ build stores the right one, you have proven causation rather than correlation.
 
 ## Definition of done
 
-- `python3 -m unittest discover -s tests -v` passes.
-- `python3 scripts/build.py --check-idempotent` passes.
-- `python3 scripts/smoke_test.py` passes (when Chromium is available).
+- `cargo test` passes.
+- `cargo run -- check-idempotent` passes.
+- `python3 tests/smoke_test.py` passes (when Chromium is available).
 - For UI changes: screenshots captured at 390/780/1920px in light and dark, with top/edge pixels compared to the page background and alignment measured numerically.
 - `./landing restart` succeeds and `./landing health` returns OK.
 - `SPEC.md` and `README.md` reflect any behavior change.

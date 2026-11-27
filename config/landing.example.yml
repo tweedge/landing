@@ -2,11 +2,15 @@
 #
 # This file is a template. Copy it to your own config and edit the values:
 #
-#   ./landing init                 # writes ./config/landing.yml if missing
+#   landing init                 # writes ./config/landing.yml if missing
 #   cp config/landing.example.yml config/landing.yml
 #
 # Personal configuration files are gitignored (config/landing.yml), so your real
 # hosts and URLs never get committed. Only this example is tracked.
+#
+# The services below are a realistic homelab mix: some are reachable only on the
+# LAN (availability: lan_only), some have both a public and a LAN URL, and some
+# are public-only. Replace the *.example.com and *.lan placeholders with your own.
 
 version: 1
 
@@ -134,6 +138,8 @@ pwa:
   shortcuts:
     - name: Home Assistant
       url: /go/ha/
+    - name: Jellyfin
+      url: /go/jellyfin/
 
 favicons:
   enabled: true
@@ -168,7 +174,7 @@ groups:
     links:
       - id: ha
         name: Home Assistant
-        icon: auto
+        icon: home-automation
         url: https://ha.example.com/
         lan_url: http://ha.lan/
         target: _self
@@ -184,11 +190,18 @@ groups:
         icon: play
         url: https://app.plex.tv/
         lan_url: https://plex.lan:32400/
+        hotkey: "2"
       - id: jellyfin
         name: Jellyfin
-        icon: play
+        icon: film
         url: https://jellyfin.example.com/
         lan_url: http://jellyfin.lan:8096/
+        hotkey: "3"
+      - id: navidrome
+        name: Navidrome
+        icon: music
+        lan_url: http://music.lan:4533/
+        availability: lan_only
       - id: qbittorrent
         name: qBittorrent
         icon: download
@@ -197,18 +210,23 @@ groups:
 
   - id: automation
     name: Automation
-    icon: server
+    icon: activity
     order: 30
     links:
       - id: node-red
         name: Node-RED
-        icon: chart
+        icon: git-branch
         lan_url: http://node-red.lan:1880/
         availability: lan_only
       - id: zigbee2mqtt
         name: Zigbee2MQTT
         icon: wifi
         lan_url: http://zigbee.lan:8080/
+        availability: lan_only
+      - id: esphome
+        name: ESPHome
+        icon: code
+        lan_url: http://esphome.lan:6052/
         availability: lan_only
 
   - id: infra
@@ -221,16 +239,15 @@ groups:
         icon: server
         url: https://proxmox.example.com:8006/
         lan_url: https://proxmox.lan:8006/
-        availability: always
+      - id: portainer
+        name: Portainer
+        icon: box
+        lan_url: https://portainer.lan/
+        availability: lan_only
       - id: pihole
         name: Pi-hole
         icon: shield
         lan_url: http://pi.hole/admin/
-        availability: lan_only
-      - id: portainer
-        name: Portainer
-        icon: cloud
-        lan_url: https://portainer.lan/
         availability: lan_only
       - id: grafana
         name: Grafana
@@ -239,9 +256,14 @@ groups:
         lan_url: http://grafana.lan:3000/
       - id: uptime-kuma
         name: Uptime Kuma
-        icon: alert
+        icon: monitor
         lan_url: http://uptime.lan:3001/
         availability: lan_only
+      - id: router
+        name: Router
+        icon: router
+        url: https://unifi.ui.com/
+        lan_url: https://udm.lan/
 
   - id: files
     name: Files & Photos
@@ -255,7 +277,7 @@ groups:
         lan_url: http://nextcloud.lan/
       - id: immich
         name: Immich
-        icon: camera
+        icon: image
         url: https://photos.example.com/
         lan_url: http://immich.lan:2283/
       - id: vaultwarden
@@ -271,9 +293,14 @@ groups:
     links:
       - id: gitea
         name: Gitea
-        icon: terminal
+        icon: git
         lan_url: http://gitea.lan:3000/
         availability: lan_only
+      - id: code-server
+        name: code-server
+        icon: code
+        url: https://code.example.com/
+        lan_url: https://code.lan/
       - id: github
         name: GitHub
         icon: globe
