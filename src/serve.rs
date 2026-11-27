@@ -80,7 +80,7 @@ fn http_client(timeout: Duration, accept_untrusted: bool) -> Result<reqwest::blo
     Ok(reqwest::blocking::Client::builder()
         .timeout(timeout)
         .danger_accept_invalid_certs(accept_untrusted)
-        .user_agent("Landing-Probe/0.3")
+        .user_agent("Landing-Probe/2.0")
         .build()?)
 }
 

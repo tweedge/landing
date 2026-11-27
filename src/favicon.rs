@@ -49,7 +49,7 @@ fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .timeout(timeout)
         .danger_accept_invalid_certs(true)
-        .user_agent("Landing-Favicon/0.3")
+        .user_agent("Landing-Favicon/2.0")
         .build()?)
 }
 
