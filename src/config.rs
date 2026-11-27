@@ -794,7 +794,7 @@ fn normalize(raw: RawConfig) -> Result<Config> {
         output_dir: build_raw.output_dir.unwrap_or_else(|| "dist".into()),
         single_file: build_raw.single_file.unwrap_or(true),
         minify: build_raw.minify.unwrap_or(false),
-        noindex: build_raw.noindex.unwrap_or(true),
+        noindex: build_raw.noindex.unwrap_or(false),
         allow_remote_assets: build_raw.allow_remote_assets.unwrap_or(false),
         source_date_epoch: build_raw.source_date_epoch.unwrap_or(0),
     };

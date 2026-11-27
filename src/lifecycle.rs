@@ -303,9 +303,12 @@ fn read_server(ctx: &Context) -> Value {
 fn restart(ctx: &Context) -> Result<()> {
     if have_systemd() {
         write_unit(ctx)?;
-        let _ = Command::new("systemctl")
+        let enabled = Command::new("systemctl")
             .args(["--user", "enable", &ctx.paths.unit_name])
-            .status();
+            .status()?;
+        if !enabled.success() {
+            bail!("failed to enable {}", ctx.paths.unit_name);
+        }
         let status = Command::new("systemctl")
             .args(["--user", "restart", &ctx.paths.unit_name])
             .status()?;

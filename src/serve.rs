@@ -446,7 +446,14 @@ fn fetch_suggestions(config: &Value, query: &str) -> Vec<String> {
         &percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC)
             .to_string(),
     );
-    let client = match http_client(Duration::from_secs(3), true) {
+    // Provider TLS should follow the same verification policy as probes;
+    // only skip verification when the user explicitly allows untrusted certs.
+    let accept_untrusted = config
+        .get("probe")
+        .and_then(|p| p.get("accept_untrusted_cert"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let client = match http_client(Duration::from_secs(3), accept_untrusted) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
@@ -673,20 +680,28 @@ fn handle(
             StatusCode(503)
         };
         json_response_with_status(&payload, headers, status)
-    } else if path == "/api/network" {
+    } else if path == "/api/network" || path == "/api/location" || path == "/api/connectivity" {
         let cfg = config.lock().unwrap().clone();
-        let payload = json!({
-            "internet": probe_connectivity(&cfg).get("online").cloned().unwrap_or(Value::Null),
-            "lan": probe_location(&cfg, None).get("home").cloned().unwrap_or(Value::Null),
-        });
-        json_response(&payload, headers)
-    } else if path == "/api/location" {
-        let cfg = config.lock().unwrap().clone();
-        let slug = query_param(raw_query, "slug");
-        json_response(&probe_location(&cfg, slug.as_deref()), headers)
-    } else if path == "/api/connectivity" {
-        let cfg = config.lock().unwrap().clone();
-        json_response(&probe_connectivity(&cfg), headers)
+        // server.probe: false disables server-side probing; return an empty
+        // object so the client falls back to its own browser probes.
+        let enabled = cfg
+            .get("server_probe")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !enabled {
+            json_response(&json!({}), headers)
+        } else if path == "/api/network" {
+            let payload = json!({
+                "internet": probe_connectivity(&cfg).get("online").cloned().unwrap_or(Value::Null),
+                "lan": probe_location(&cfg, None).get("home").cloned().unwrap_or(Value::Null),
+            });
+            json_response(&payload, headers)
+        } else if path == "/api/location" {
+            let slug = query_param(raw_query, "slug");
+            json_response(&probe_location(&cfg, slug.as_deref()), headers)
+        } else {
+            json_response(&probe_connectivity(&cfg), headers)
+        }
     } else if path == "/api/suggest" {
         let cfg = config.lock().unwrap().clone();
         let query = query_param(raw_query, "q").unwrap_or_default();

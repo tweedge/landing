@@ -262,3 +262,26 @@ fn embedded_js_is_structurally_balanced() {
         assert_eq!(parens, 0, "{name} has unbalanced parentheses");
     }
 }
+
+#[test]
+fn site_noindex_false_reenables_indexing() {
+    // site.noindex is the documented control; build.noindex must default false
+    // so it does not silently override an explicit site.noindex: false.
+    let yaml = "version: 1\nsite:\n  title: T\n  noindex: false\ngroups:\n  - id: home\n    links:\n      - id: a\n        url: https://a.example/\n";
+    let cfg = config::parse(yaml).unwrap();
+    config::validate(&cfg).unwrap();
+    assert!(!cfg.site.noindex);
+    assert!(!cfg.build.noindex);
+}
+
+#[test]
+fn server_json_reports_probe_flag_and_single_probe_object() {
+    let out = temp_out("server-probe-flag");
+    build_to(&out);
+    let server: serde_json::Value = serde_json::from_str(&read(&out.join("server.json"))).unwrap();
+    assert_eq!(server["server_probe"], serde_json::json!(true));
+    // Only the nested probe object exists; no stale flat duplicates.
+    assert!(server.get("probe_internet").is_none());
+    assert!(server.get("captive_portal").is_none());
+    let _ = std::fs::remove_dir_all(&out);
+}
